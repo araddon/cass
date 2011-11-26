@@ -1,17 +1,5 @@
 /*
   Cassandra Client
-
-  TODO:
-    - InsertRows for mul rows, refactor to share code w Insert
-    - get
-      - getslice
-      - getmultislice
-    - CQL
-    - onto github
-    - makefile install should compile/install the cassanra lib?
-
-
-
 */
 package cass
 
@@ -32,6 +20,12 @@ var defaultAddr = "127.0.0.1:9160"
 
 type CassandraError string
 func (e CassandraError) Error() string   { return "cass error " + string(e) }
+
+type Compression int
+const (
+  GZIP Compression = 1
+  NONE Compression = 2
+)
 
 type CLog struct {
   Logger *log.Logger
@@ -528,13 +522,13 @@ func (c *CassandraConnection) get(rowkey string, cp *cassandra.ColumnPath) (cosc
 }
 
 /**
- * Get:  Gets Column
+ * Get:  Gets Single Row-Col combo
  * 
- * @cfname string
- * @rowkey string
- * @column string
+ * @cfname string  Column Family name
+ * @rowkey string  Row Key
+ * @column string  Column name we want returned
  * 
- * returns ColumnOrSuperColumn
+ * returns *cassandra.Column
  */
 func (c *CassandraConnection) Get(cfname , rowkey, col string) (cassCol *cassandra.Column, err error) {
 
@@ -544,6 +538,124 @@ func (c *CassandraConnection) Get(cfname , rowkey, col string) (cassCol *cassand
     return cosc.Column, nil
   }
   return cassCol, CassandraError("No column returned")
+}
+
+/**
+ * GetAll:  Gets Single Row record, columns
+ * 
+ * @cfname string  Column Family name
+ * @rowkey string  Row Key
+ * @colLimit int
+ * 
+ * returns []cassandra.Column
+ */
+func (c *CassandraConnection) GetAll(cf , rowkey string, colCt int) (cassCol *[]cassandra.Column, err error) {
+
+  return c.GetRange(cf,rowkey, "", "", false, colCt)
+
+}
+
+func (c *CassandraConnection) getslice(rowkey string, cp *cassandra.ColumnParent, sp *cassandra.SlicePredicate) (cassCol *[]cassandra.Column, err error) {
+
+  //GetSlice(key string, column_parent *ColumnParent, predicate *SlicePredicate, consistency_level ConsistencyLevel) 
+  //  (retval447 thrift.TList, ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
+  ret, ire, ue, te, err := c.Client.GetSlice(rowkey, cp, sp, cassandra.ONE)
+  if ire != nil || ue != nil || te != nil || err != nil {
+    err = CassandraError(fmt.Sprint("nothing returned for GetRange ", ire, ue, te, err))
+    Logger.Error(err.Error())
+    return cassCol, err
+  }
+  if ret != nil && ret.Len() > 0 {
+    cc := make([]cassandra.Column,ret.Len())
+    for i := 0; i < ret.Len(); i++ {
+      cc[i] = *(ret.At(i).(*cassandra.ColumnOrSuperColumn)).Column
+    }
+    return &cc, nil
+  }
+
+  return cassCol, nil
+}
+
+func (c *CassandraConnection) GetCols(cf, rowkey string, cols []string) (cassCol *[]cassandra.Column, err error) {
+
+  sp := cassandra.NewSlicePredicate()
+  cp := NewColumnParent(cf)
+  //ColumnNames thrift.TList "column_names"; // 1
+  l := thrift.NewTList(thrift.STRING, 0) // auto-expands, starting length should be 0
+
+  for i := 0; i < len(cols); i++ {
+    l.Push(cols[i])
+  }
+  sp.ColumnNames = l
+  
+  return c.getslice(rowkey, cp, sp)
+}
+
+/**
+ * Get a single row's columns, which columns to get are defined by:
+ * 
+ * @param colfam  The name of the column family
+ * @param rowkey   Row key
+ * @param start. The column name to start the slice with. This attribute is not required, though there is no default value,
+ *               and can be safely set to '', i.e., an empty byte array, to start with the first column name. Otherwise, it
+ *               must a valid value under the rules of the Comparator defined for the given ColumnFamily.
+ * @param finish. The column name to stop the slice at. This attribute is not required, though there is no default value,
+ *                and can be safely set to an empty byte array to not stop until 'count' results are seen. Otherwise, it
+ *                must also be a valid value to the ColumnFamily Comparator.
+ * @param reversed. Whether the results should be ordered in reversed order. Similar to ORDER BY blah DESC in SQL.
+ * @param count. How many columns to return. Similar to LIMIT in SQL. May be arbitrarily large, but Thrift will
+ *               materialize the whole result into memory before returning it to the client, so be aware that you may
+ *               be better served by iterating through slices by passing the last value of one call in as the 'start'
+ *               of the next instead of increasing 'count' arbitrarily large.
+ */
+func (c *CassandraConnection) GetRange(cf, rowkey, start, finish string, reversed bool, colLimit int) (cassCol *[]cassandra.Column, err error) {
+
+  sp := cassandra.NewSlicePredicate()
+  cp := NewColumnParent(cf)
+  sp.SliceRange = NewSliceRange(start,finish,reversed,colLimit)
+  
+  return c.getslice(rowkey, cp, sp)
+
+}
+
+/**
+ * Executes a CQL (Cassandra Query Language) statement and returns a * CqlResult containing the results.
+ * 
+ * Parameters:
+ *  - Query
+ *  - Compression
+ */
+func (c *CassandraConnection) Query(cql, compression string) (rowMap map[string]*[]cassandra.Column, err error) {
+    
+  //ExecuteCqlQuery(query string, compression Compression) 
+  //  (retval474 *CqlResult, ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, sde *SchemaDisagreementException, err error)
+
+  ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
+  if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
+    err = CassandraError(fmt.Sprint("nothing returned for Query ", ire, ue, te, sde, err))
+    Logger.Error(err.Error())
+    return rowMap, err
+  }
+  
+  if ret != nil && ret.Rows != nil {
+    rowCt := ret.Rows.Len()
+    rowMap = make(map[string]*[]cassandra.Column, rowCt)
+    var cqlRow cassandra.CqlRow
+    //cols := make([]cassandra.Column, rowCt)
+    for i := 0; i < rowCt; i++ {
+      cr := (ret.Rows.At(i)).(*cassandra.CqlRow)
+      cqlRow = *cr
+      cols := make([]cassandra.Column,cqlRow.Columns.Len())
+      for x := 0; x < cqlRow.Columns.Len(); x++ {
+        cols[x] = *cqlRow.Columns.At(x).(*cassandra.Column)
+      }
+      rowMap[cqlRow.Key] = &cols
+      //*(ret.At(i).(*cassandra.ColumnOrSuperColumn)).Column
+      //cols[i] = (ret.Rows.At(i)).(cassandra.Column)
+    }
+    return rowMap, nil
+  }
+  return rowMap, err
 }
 
 /**
@@ -601,5 +713,14 @@ func NewCounterColumn(name string, value int64) (c *cassandra.CounterColumn) {
   c = cassandra.NewCounterColumn()
   c.Name = name
   c.Value = value
+  return
+}
+
+func NewSliceRange(start, finish string, reversed bool, limitCt int) (sr *cassandra.SliceRange) {
+  sr = cassandra.NewSliceRange()
+  sr.Start = start
+  sr.Finish = finish
+  sr.Reversed = reversed
+  sr.Count = int32(limitCt)
   return
 }

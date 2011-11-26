@@ -9,6 +9,7 @@ package cass_test
 import (
   "testing"
   //"fmt"
+  "thriftlib/cassandra"
   "flag"
   . "cass"
 )
@@ -56,6 +57,8 @@ func TestAllCassandra(t *testing.T) {
   testCounters(t)
 
   testMultiCrud(t)
+
+  testCQL(t)
 
 }
 func initConn(t *testing.T) {
@@ -165,25 +168,6 @@ func testInsertAndRead(t *testing.T) {
   }
 }
 
-func testMultiCrud(t *testing.T) {
-  // now multi-column single row insert
-  rows := map[string]map[string]string{
-    "keyvalue1": map[string]string{"col1":"val1","col2": "val2"},
-    "keyvalue2": map[string]string{"col1":"val1","col2": "val2"},
-  }
-
-  err := conn.Mutate("testing",rows)
-
-  if err != nil {
-    t.Errorf("error, insert/read failed on multicol insert")
-  } 
-  
-  col, _ := conn.Get("testing","keyvalue1","col1")
-  if col == nil || col.Value != "val1" {
-    t.Errorf("write Mutaet (multi-row, multi-col) failed for keyvalue1: col1 = val1")
-  }
-}
-
 // test creation, update, read of counter cf
 func testCounters(t *testing.T) {
 
@@ -205,6 +189,129 @@ func testCounters(t *testing.T) {
   ct := conn.GetCounter("testct","keyinserttest")
 
   if ct != int64(19) {
-    t.Errorf("Crap, counter din't work and equal 19", ct)
+    t.Errorf("Crap, counter didn't work and equal 19", ct)
   }
 }
+
+
+// Test multi-col, & multi-row gets, updates
+func testMultiCrud(t *testing.T) {
+
+  var col cassandra.Column
+
+  // now multi-column single row insert
+  rows := map[string]map[string]string{
+    "keyvalue1": map[string]string{"col1":"val1","col2": "val2","col3":"val3","col4":"val4"},
+    "keyvalue2": map[string]string{"col1":"val1","col2": "val2"},
+  }
+
+  err := conn.Mutate("testing",rows)
+
+  if err != nil {
+    t.Errorf("error, insert/read failed on multicol insert")
+  } 
+  
+  colget, _ := conn.Get("testing","keyvalue1","col1")
+  if colget == nil || colget.Value != "val1" {
+    t.Errorf("write Mutaet (multi-row, multi-col) failed for keyvalue1: col1 = val1")
+  }
+
+  // get all
+  colsall, errall := conn.GetAll("testing","keyvalue1",1000)
+  if colsall == nil || errall != nil {
+    t.Error("GetAll failed with error or no response ", errall.Error())
+  } else if len(*colsall) != 4{
+    t.Errorf("GetAll failed expected 4 cols, got %d", len(*colsall))
+  }
+
+  // get range
+  cols, err2 := conn.GetRange("testing","keyvalue1","col2","col3", false, 100)
+
+  if err2 != nil {
+    t.Errorf("GetRange failed by returning error %s", err2.Error())
+
+  } else if cols == nil || len((*cols)) == 0 {
+    t.Errorf("GetRange failed by returning empty")
+
+  } else {
+
+    col = (*cols)[0]
+    if col.Value != "val2" || col.Name != "col2" {
+      t.Errorf("GetRange failed with wrong val expected col2:val2 but was %s:%s", col.Name, col.Value)
+    }
+  }
+  
+  
+  // get specific cols
+  cols2, err3 := conn.GetCols("testing","keyvalue1",[]string{"col2","col4"})
+
+  if err3 != nil {
+    t.Errorf("GetCols failed by returning error %s", err3.Error())
+
+  } else if cols2 == nil || len((*cols2)) == 0 {
+    t.Errorf("GetCols failed by returning empty")
+
+  } else {
+
+    if len((*cols2)) != 2 {
+      t.Errorf("GetCols failed by returning wrong col ct")
+    } 
+    col = (*cols2)[0]
+    if col.Value != "val2" || col.Name != "col2" {
+      t.Errorf("GetCols failed with wrong n/v expected col2:val2 but was %s:%s", col.Name, col.Value)
+    }
+    col = (*cols2)[1]
+    if col.Value != "val4" || col.Name != "col4" {
+      t.Errorf("GetCols failed with wrong n/v expected col4:val4 but was %s:%s", col.Name, col.Value)
+    }
+  }
+  
+
+}
+
+// CQL (string queries) 
+func testCQL(t *testing.T) {
+
+  var col cassandra.Column
+
+  _, err1 := conn.Query("INSERT INTO testing (KEY, col1,col2,col3,col4) VALUES('testingcqlinsert','val1','val2','val3','val4');", "NONE")
+  if err1 != nil {
+    t.Errorf("CQL Query Insert failed by returning error %s", err1.Error())
+  } 
+
+
+
+  //cqlsh> INSERT INTO users (KEY, password) VALUES ('jsmith', 'ch@ngem3a') USING TTL 86400;
+  // cqlsh> SELECT * FROM users WHERE KEY='jsmith';
+  // get cql query cols
+  rows, err := conn.Query("SELECT col1,col2,col3,col4 FROM testing WHERE KEY='testingcqlinsert';", "NONE")
+  Logger.Debug("Testing CQL:  SELECT * FROM testing WHERE KEY='testingcqlinsert';")
+
+  if err != nil {
+    t.Errorf("CQL Query failed by returning error %s", err.Error())
+
+  } else if rows == nil || len(rows) == 0 {
+    t.Errorf("Query failed by returning empty")
+
+  } else {
+
+    if len(rows) != 1 {
+      t.Errorf("Query failed by returning wrong row ct")
+    } 
+    cols := rows["testingcqlinsert"]
+    col = (*cols)[0]
+    if len((*cols)) != 4 {
+      t.Errorf("Query failed by returning wrong col ct")
+    } 
+    
+    if col.Value != "val1" || col.Name != "col1" {
+      t.Errorf("Query failed with wrong n/v expected col1:val1 but was %s:%s", col.Name, col.Value)
+    }
+    col3 := (*cols)[3]
+    if col3.Value != "val4" || col3.Name != "col4" {
+      t.Errorf("Query failed with wrong n/v expected col4:val4 but was %s:%s", col3.Name, col3.Value)
+    }
+  }
+}
+
+
