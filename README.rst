@@ -13,7 +13,7 @@ First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4
 
 then install the *thriftlib/cassandra*, then the *cass* client::
     
-    goinstall github.com/araddon/cass/tree/thrift/1.0/gen-go/cassandra
+    goinstall github.com/araddon/cass/tree/master/thrift/1.0/gen-go/cassandra
     goinstall github.com/araddon/cass
 
 
@@ -94,7 +94,17 @@ Get Many for column family, and row key specified return columns::
 
 CQL::
     
-    // todo
+  _, err1 := conn.Query("INSERT INTO testing (KEY, col1,col2,col3,col4) VALUES('testingcqlinsert','val1','val2','val3','val4');", "NONE")
+  if err1 != nil {
+    t.Errorf("CQL Query Insert failed by returning error %s", err1.Error())
+  } 
+
+
+  rows, err := conn.Query("SELECT col1,col2,col3,col4 FROM testing WHERE KEY='testingcqlinsert';", "NONE")
+  cols := rows["testingcqlinsert"]
+  if col.Value != "val1" || col.Name != "col1" {
+    t.Errorf("Query failed with wrong n/v expected col1:val1 but was %s:%s", col.Name, col.Value)
+  }
 
 
 To Generate the Cassandra Go Thrift Client
