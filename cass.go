@@ -1,22 +1,32 @@
 /*
-  Cassandra Client
+  Cassandra Client.  The default behavior is a single connection pool
+  for a single cassandra keyspace.   If this is not desired, and you have multiple
+  keyspaces, then you need to implement a *GetConn* func for each keyspace as follows::
+
+    // create  connection pool per keyspace:
+    var keyspace1Pool chan CassandraConnection
+
+    func GetKeyspace1Conn() (conn *CassandraConnection, err error) {
+      return GetConnFromPool(&keyspace1Pool)
+    }
 */
 package cass
 
 import (
-  "time" 
+  //"errors"
   "fmt" 
+  "log"
+  "os"
+  "net"
   "thriftlib/cassandra"
   "thrift"
-  //"strconv"
-  "net"
-  "os"
-  "log"
+  "time"
 )
 
 
 var MaxPoolSize = 20 // Per server
 var defaultAddr = "127.0.0.1:9160"
+var cassClient *CassClient
 
 type CassandraError string
 func (e CassandraError) Error() string   { return "cass error " + string(e) }
@@ -95,27 +105,29 @@ type CassClient struct {
   ServerCount int
   next int  // next server
   Keyspace string
-  //the connection pool
-  pool chan CassandraConnection
 }
 
-func NewCassandra (keyspace string, servers []string) *CassClient {
-  var c = CassClient{servers:&servers,Keyspace:keyspace,ServerCount:len(servers)}
-  c.initPool()
-  return &c
+
+//the default connection pool
+var connPool chan CassandraConnection
+
+func GetClient (keyspace string, servers []string) *CassClient {
+  cassClient = &CassClient{servers:&servers,Keyspace:keyspace,ServerCount:len(servers)}
+  cassClient.initPool()
+  return cassClient
 }
 
 func (c *CassClient) PoolSize() int {
-  return len(c.pool)
+  return len(connPool)
 }
 
 // clean up and close connections
 func (c *CassClient) Close() {
   
   var conn CassandraConnection 
-  if len(c.pool) > 0 {
-    for i := 0; i < len(c.pool); i++ {
-      conn = <-c.pool
+  if len(connPool) > 0 {
+    for i := 0; i < len(connPool); i++ {
+      conn = <-connPool
       if conn.Client != nil {
         conn.Client.Transport.Close()
       }
@@ -125,13 +137,13 @@ func (c *CassClient) Close() {
 
 // initialize connections 
 func (c *CassClient) initPool() {
-  if c.pool == nil || len(c.pool) == 0 {
-    c.pool = make(chan CassandraConnection, MaxPoolSize * c.ServerCount)
+  if connPool == nil || len(connPool) == 0 {
+    connPool = make(chan CassandraConnection, MaxPoolSize * c.ServerCount)
     var  whichServer int = 0
     for i := 0; i < MaxPoolSize * c.ServerCount; i++ {
       // add empty values to the pool
       // TODO:  How come we can't add nil?
-      c.pool <- CassandraConnection{Keyspace:c.Keyspace, Id:i, Server:(*c.servers)[whichServer]}
+      connPool <- CassandraConnection{Keyspace:c.Keyspace, Id:i, Server:(*c.servers)[whichServer]}
 
       //TODO:  implement randomizer, round-robin etc
       whichServer ++
@@ -142,18 +154,21 @@ func (c *CassClient) initPool() {
   } 
 }
 
-func (c *CassClient) CheckoutConn() (conn *CassandraConnection, err error) {
-  
+func GetCassConn(ks string) (conn *CassandraConnection, err error) {
+  return GetConnFromPool(ks,&connPool) 
+}
+
+func GetConnFromPool(ks string, pool *chan CassandraConnection) (conn *CassandraConnection, err error) {
   var cn CassandraConnection
   
-  cn = <-c.pool
+  cn = <-(*pool)
   conn = &cn
-  Logger.Debugf("in checkout, pulled off pool remaining = %d, connid=%d Server=%s\n", len(c.pool), cn.Id, cn.Server)
+  Logger.Debugf("in checkout, pulled off pool remaining = %d, connid=%d Server=%s\n", len(connPool), cn.Id, cn.Server)
 
   if conn.Client == nil || conn.Client.Transport.IsOpen() == false {
 
     Logger.Debug("creating new cassandra connection ")
-    ts, _ := c.NewTSocket()
+    ts, _ := cassClient.NewTSocket()
     if ts == nil {
       Logger.Fatal("NO Socket Connection", ts)
       return conn, nil
@@ -162,28 +177,46 @@ func (c *CassClient) CheckoutConn() (conn *CassandraConnection, err error) {
     // the TSocket implements interface TTransport
     trans := thrift.NewTFramedTransport(ts)
     trans.Open()
-    //defer trans.Close()
 
     protocolfac := thrift.NewTBinaryProtocolFactoryDefault()
 
     conn.Client = cassandra.NewCassandraClientFactory(trans, protocolfac)
-    //fmt.Println("transport = ", client.Transport)
 
-    //SetKeyspace(keyspace string) (ire *InvalidRequestException, err error)
-    ire, er := conn.Client.SetKeyspace(c.Keyspace)
+    ire, er := conn.Client.SetKeyspace(ks)
     if ire != nil || er != nil {
       // most likely this is because it hasn't been created yet, so we will
       // ignore for now?
       Logger.Debug(ire, er)
     }
+    
+  } else if conn != nil && conn.Keyspace != ks {
+    ire, er := conn.Client.SetKeyspace(ks)
+    if ire != nil || er != nil {
+      // most likely this is because it hasn't been created yet, so we will
+      // ignore for now?
+      Logger.Debug(ire, er)
+      //err = errors.New(fmt.Sprint(ire,er))
+    }
+  }
+  return
+}
+
+func (c *CassClient) CheckoutConn() (conn *CassandraConnection, err error) {
+  
+  conn, err = GetCassConn(c.Keyspace)
+  
+  if err != nil {
+    // most likely this is because it hasn't been created yet, so we will
+    // ignore for now?
+    Logger.Debug(err)
   }
 
   return
 }
 
-func (c *CassClient) CheckinConn(conn *CassandraConnection) {
+func (conn *CassandraConnection) Checkin() {
 
-  c.pool <- *conn
+  connPool <- *conn
 }
 
 /**
@@ -230,25 +263,7 @@ func (c *CassandraConnection) ColumnsString() (out string) {
 }
 
 func (c *CassandraConnection) CreateKeyspace(ks string,repfactor int) string {
-  /*
-    type KsDef struct {
-    thrift.TStruct
-    Name string "name"; // 1
-    StrategyClass string "strategy_class"; // 2
-    StrategyOptions thrift.TMap "strategy_options"; // 3
-    ReplicationFactor int32 "replication_factor"; // 4
-    CfDefs thrift.TList "cf_defs"; // 5
-    DurableWrites bool "durable_writes"; // 6
-    }
-
-    func NewKsDef() *KsDef {
-    output := &KsDef{
-
-    CREATE KEYSPACE demo
-    with placement_strategy = 'org.apache.cassandra.locator.SimpleStrategy'
-    and strategy_options = [{replication_factor:1}];
-  */
-  
+    
   ksdef := cassandra.NewKsDef()
   ksdef.StrategyClass = "org.apache.cassandra.locator.SimpleStrategy"
   ksdef.Name = ks
@@ -300,64 +315,7 @@ func (c *CassandraConnection) CreateColumnFamily(cf, comparator, validation, key
 // create column family, returns schemaid, if not successful
 // then schemaid will be zero length indicating no change
 func (c *CassandraConnection) createCF(cf, comparator, validation, keyvalidation string) string {
-  /*
-    new schema id.
-    type CfDef struct {
-      thrift.TStruct
-      Keyspace string "keyspace"; // 1
-      Name string "name"; // 2
-      ColumnType string "column_type"; // 3
-      _ interface{} "comparator_type"; // nil # 4
-      ComparatorType string "comparator_type"; // 5
-      SubcomparatorType string "subcomparator_type"; // 6
-      _ interface{} "comment"; // nil # 7
-      Comment string "comment"; // 8
-      RowCacheSize float64 "row_cache_size"; // 9
-      _ interface{} "key_cache_size"; // nil # 10
-      KeyCacheSize float64 "key_cache_size"; // 11
-      ReadRepairChance float64 "read_repair_chance"; // 12
-      ColumnMetadata thrift.TList "column_metadata"; // 13
-      GcGraceSeconds int32 "gc_grace_seconds"; // 14
-      DefaultValidationClass string "default_validation_class"; // 15
-      Id int32 "id"; // 16
-      MinCompactionThreshold int32 "min_compaction_threshold"; // 17
-      MaxCompactionThreshold int32 "max_compaction_threshold"; // 18
-      RowCacheSavePeriodInSeconds int32 "row_cache_save_period_in_seconds"; // 19
-      KeyCacheSavePeriodInSeconds int32 "key_cache_save_period_in_seconds"; // 20
-      _ interface{} "replicate_on_write"; // nil # 21
-      _ interface{} "replicate_on_write"; // nil # 22
-      _ interface{} "replicate_on_write"; // nil # 23
-      ReplicateOnWrite bool "replicate_on_write"; // 24
-      MergeShardsChance float64 "merge_shards_chance"; // 25
-      KeyValidationClass string "key_validation_class"; // 26
-      RowCacheProvider string "row_cache_provider"; // 27
-      KeyAlias string "key_alias"; // 28
-      CompactionStrategy string "compaction_strategy"; // 29
-      CompactionStrategyOptions thrift.TMap "compaction_strategy_options"; // 30
-      RowCacheKeysToSave int32 "row_cache_keys_to_save"; // 31
-      CompressionOptions thrift.TMap "compression_options"; // 32
-    }
-      CREATE COLUMN FAMILY page_view_counts
-      WITH default_validation_class=CounterColumnType
-      AND key_validation_class=UTF8Type 
-      AND comparator=UTF8Type;
-
-      CREATE COLUMN FAMILY blog_entry
-      WITH comparator = TimeUUIDType
-      AND key_validation_class=UTF8Type
-      AND default_validation_class = UTF8Type;
-
-      CREATE COLUMN FAMILY users
-      WITH comparator = UTF8Type
-      AND key_validation_class=UTF8Type
-      AND column_metadata = [
-      {column_name: full_name, validation_class: UTF8Type}
-      {column_name: email, validation_class: UTF8Type}
-      {column_name: state, validation_class: UTF8Type}
-      {column_name: gender, validation_class: UTF8Type}
-      {column_name: birth_year, validation_class: LongType}
-      ];
-  */
+  
   cfdef := cassandra.NewCfDef()
   cfdef.Keyspace = c.Keyspace
   cfdef.Name = cf
@@ -390,7 +348,7 @@ func (c *CassandraConnection) DeleteCF(cf string) string {
 
 func (c *CassandraConnection) Mutate(cf string, mutateArgs map[string]map[string]string) (err error) {
 
-  timestamp := time.Nanoseconds() / 1e6 
+  timestamp := time.Now().UnixNano() / 1e6 
   
 
   //1:required map<binary, map<string, list<Mutation>>> mutation_map,
@@ -449,7 +407,7 @@ func makeMutationMap(cf string, mutate map[string]map[string]string, timestamp i
 func (c *CassandraConnection) Insert(cf string, key string, cols map[string]string, timestamp int64) (err error) {
   
   if timestamp == 0 {
-    timestamp = time.Nanoseconds() / 1e6 
+    timestamp = time.Now().UnixNano() / 1e6 
   }
   
   if len(cols) > 1 {
@@ -477,7 +435,7 @@ func (c *CassandraConnection) Insert(cf string, key string, cols map[string]stri
 
     if ire != nil || ue != nil || te != nil || err != nil {
       Logger.Error("an error occured",ire,ue,te,err)
-      return CassandraError("error")
+      return CassandraError("error" + fmt.Sprint(ire,ue,te,err))
     }
   }
 
@@ -676,11 +634,21 @@ func (c *CassandraConnection) GetCounter(cfname , rowkey string) (counter int64)
   return counter
 }
   
-/**
- *
- */
+// Get Thrift Socket Connection.  If list of servers is > 1 then round robins
+// through list getting one for each.  Note, not the same as "GetConnection", once
+// a connection is established it stays on same server so load balancing at the 
+// checkout connection could potentially be more important?
 func (c *CassClient) NewTSocket()  (*thrift.TSocket, thrift.TTransportException)  {
+  Logger.Debug("cservers", c.servers, " ", c.next)
   server := (*c.servers)[c.next]
+  srvCt := len((*c.servers))
+  if srvCt > 1 && c.next + 1 < srvCt {
+    c.next ++
+  } else if srvCt > 1 && c.next + 1 == srvCt {
+    c.next = 0
+  } else {
+    // ignore, len c.servers = 1
+  }
   conn, er := net.Dial("tcp", server)
   if er != nil {
     return nil, nil

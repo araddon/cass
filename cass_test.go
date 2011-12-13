@@ -35,7 +35,7 @@ func init() {
 
 func cleanup() {
   _ = conn.DeleteKeyspace("testing")
-  cassClient.CheckinConn(conn)
+  conn.Checkin()
   cassClient.Close()
 }
 
@@ -63,7 +63,7 @@ func TestAllCassandra(t *testing.T) {
 }
 func initConn(t *testing.T) {
 
-  cassClient = NewCassandra("testing", []string{defaultHost})
+  cassClient = GetClient("testing", []string{defaultHost})
 
   Logger.Debug("Connecting to Cassandra server: ", defaultHost)
 
@@ -71,11 +71,10 @@ func initConn(t *testing.T) {
   if MaxPoolSize < 5 || cassClient.PoolSize() != defaultPoolSize {
     t.Errorf("default pool size should be %d", defaultPoolSize)
   }
-  
-
-  conn, err = cassClient.CheckoutConn()
+    
+  conn, err = GetCassConn("testing")
   if err != nil {
-    t.Errorf("error on opening cassandra connection")
+    t.Error("error on opening cassandra connection", err)
   }
   
 }
@@ -95,7 +94,7 @@ func testConn(t *testing.T) {
     t.Errorf("default pool size should be %d now that we have checked two out", defaultPoolSize)
   }
 
-  cassClient.CheckinConn(conn2)
+  conn2.Checkin()
   if cassClient.PoolSize() != defaultPoolSize - 1 {
     t.Errorf("default pool size should be %d now that we have checked one back in", defaultPoolSize)
   }

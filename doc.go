@@ -1,4 +1,5 @@
-A simple Cassandra client in go.  Currently runs against cassandra 1.0.  
+/*
+Cass:  A simple Cassandra client in go.  Currently runs against cassandra 1.0.  
 
 As of Nov 22-11:  Very early version, has very custom build chain (for now).   Built against Go Weekly so don't run *goinstall github.com/araddon/cass* unless you have a very recent goweekly/HEAD install.  It uses the new *errors* instead of *os.Error* and other changes.   Because of the Go changes it has custom `Thrift Go Lib <http://github.com/araddon/thrift4go>`_.   If you hack it needs a modified version of core `Thrift <http://github.com/araddon/thrift` in order to generate the /thrift/1.0/gen-go libs.  See commit log to see changes of the thrift or go4thrift changes.
 
@@ -116,3 +117,5 @@ To generate from *cassandra.thrift*, you first need to have a working install of
     thrift --gen go cassandra.thrift     
 
 
+*/
+package cass

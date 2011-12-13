@@ -6,6 +6,7 @@ GOFMT=gofmt -s -spaces=true -tabindent=false -tabwidth=2
 
 GOFILES=\
 	cass.go\
+	doc.go\
 
 include $(GOROOT)/src/Make.pkg
 
