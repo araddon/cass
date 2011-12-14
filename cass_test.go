@@ -1,7 +1,7 @@
 /*
 Cassandra Client testing
 
->>>gotest -host 192.168.1.56:9160 -verbose=true
+>>>gotest -host 192.168.1.56:9160 
 
 */
 package cass_test
@@ -9,34 +9,35 @@ package cass_test
 import (
   "testing"
   //"fmt"
+  //"os"
   "thriftlib/cassandra"
   "flag"
+  "strings"
   . "cass"
 )
 
-var cassClient *CassClient
 var conn *CassandraConnection
+var ksConfig *KeyspaceConfig
 var err error
-var defaultPoolSize int
-var defaultHost string
+var poolSize int
+var cassServers string
 var verbose bool 
 
 func init() {
-  flag.StringVar(&defaultHost, "host", "127.0.0.1:9160", "Cassandra host/port combo")
-  flag.BoolVar(&verbose, "verbose", true, "Use verbose logging during test?")
+  flag.StringVar(&cassServers, "host", "127.0.0.1:9160", "Cassandra host/port combo")
+  flag.IntVar(&poolSize, "poolsize", 20, "Default Pool Size = 20, change with this flag")
+  LogLevel = 5
   flag.Parse()
-  if verbose {
-    Logger.LogLevel = 5
-  } else {
-    Logger.LogLevel = 1
-  }
+  servers := strings.Split(cassServers,",")
   
+  ConfigKeyspace("testing",servers, poolSize )
+
 }
 
 func cleanup() {
   _ = conn.DeleteKeyspace("testing")
   conn.Checkin()
-  cassClient.Close()
+  CloseAll()
 }
 
 func TestAllCassandra(t *testing.T) {
@@ -58,45 +59,41 @@ func TestAllCassandra(t *testing.T) {
 
   testMultiCrud(t)
 
+  testByteType(t)
+
   testCQL(t)
 
 }
 func initConn(t *testing.T) {
 
-  cassClient = GetClient("testing", []string{defaultHost})
+  Log(DEBUG, "Connecting to Cassandra server: ", cassServers)
 
-  Logger.Debug("Connecting to Cassandra server: ", defaultHost)
-
-  defaultPoolSize = MaxPoolSize // from cass
-  if MaxPoolSize < 5 || cassClient.PoolSize() != defaultPoolSize {
-    t.Errorf("default pool size should be %d", defaultPoolSize)
-  }
-    
   conn, err = GetCassConn("testing")
-  if err != nil {
-    t.Error("error on opening cassandra connection", err)
+  if err != nil || conn == nil || conn.Client == nil {
+    t.Fatal("error on opening cassandra connection", err)
   }
-  
+
 }
 
 // test if we have opened a connection to cassandra
 func testConn(t *testing.T) {
+  Log(DEBUG, "conn ok?", conn, conn.Client)
   if  conn.Client.Transport.IsOpen() != true {
     t.Errorf("error, no open connection")
   } 
-  if cassClient.PoolSize() != defaultPoolSize - 1 {
-    t.Errorf("default pool size should be %d now that we have checked one out", defaultPoolSize)
+  if ConnPoolSize("testing") != poolSize - 1 {
+    t.Errorf("default pool size should be %d now that we have checked one out", poolSize - 1)
   }
 
   var conn2 *CassandraConnection
-  conn2, err = cassClient.CheckoutConn()
-  if cassClient.PoolSize() != defaultPoolSize - 2 {
-    t.Errorf("default pool size should be %d now that we have checked two out", defaultPoolSize)
+  conn2, err = GetCassConn("testing")
+  if ConnPoolSize("testing")  != poolSize - 2 {
+    t.Errorf("default pool size should be %d now that we have checked two out", poolSize - 2)
   }
 
   conn2.Checkin()
-  if cassClient.PoolSize() != defaultPoolSize - 1 {
-    t.Errorf("default pool size should be %d now that we have checked one back in", defaultPoolSize)
+  if ConnPoolSize("testing")  != poolSize - 1 {
+    t.Errorf("remaining pool size should be %d now that we have checked one back in", poolSize - 1)
   }
 }
 
@@ -130,6 +127,28 @@ func testCFCrud(t *testing.T) {
     // ignore, just making sure it is not here, probably logged an error....
   } 
 
+}
+
+func testByteType(t *testing.T) {
+  schemaid := conn.CreateColumnFamily("testing_byte_columns","BytesType","BytesType","UTF8Type")
+  if  len(schemaid) < 10 {
+    t.Errorf("no valid schema id?")
+  } 
+  col_val := []byte{0,255,1,99,134}
+  var cols = map[string]string{
+    string([]byte{0,255}): string(col_val),
+  }
+
+  err := conn.Insert("testing_byte_columns","bytescoltest",cols,0)
+  if err != nil {
+    t.Errorf("error, insert/read failed")
+  } 
+
+  col, _ := conn.Get("testing_byte_columns","bytescoltest",string([]byte{0,255}))
+  new_col_val := []byte(col.Value)
+  if col == nil ||  string(new_col_val) != string(col_val) {
+    t.Errorf("get multi-col single row insert failed:  testing - keyinserttest2")
+  }
 }
 
 // test insert, then read and verify
@@ -204,7 +223,7 @@ func testMultiCrud(t *testing.T) {
     "keyvalue2": map[string]string{"col1":"val1","col2": "val2"},
   }
 
-  err := conn.Mutate("testing",rows)
+  err := conn.Mutate("testing",rows,0)
 
   if err != nil {
     t.Errorf("error, insert/read failed on multicol insert")
@@ -216,7 +235,7 @@ func testMultiCrud(t *testing.T) {
   }
 
   // get all
-  colsall, errall := conn.GetAll("testing","keyvalue1",1000)
+  colsall, errall := conn.GetAll("testing","keyvalue1",false,1000)
   if colsall == nil || errall != nil {
     t.Error("GetAll failed with error or no response ", errall.Error())
   } else if len(*colsall) != 4{
@@ -284,7 +303,7 @@ func testCQL(t *testing.T) {
   // cqlsh> SELECT * FROM users WHERE KEY='jsmith';
   // get cql query cols
   rows, err := conn.Query("SELECT col1,col2,col3,col4 FROM testing WHERE KEY='testingcqlinsert';", "NONE")
-  Logger.Debug("Testing CQL:  SELECT * FROM testing WHERE KEY='testingcqlinsert';")
+  Log(DEBUG, "Testing CQL:  SELECT * FROM testing WHERE KEY='testingcqlinsert';")
 
   if err != nil {
     t.Errorf("CQL Query failed by returning error %s", err.Error())

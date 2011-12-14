@@ -24,14 +24,14 @@ Create a Connection, Keyspace, Column Family, Insert, Read::
     import "cass", "fmt"
 
     cassClient = cass.NewCassandra("testing", []string{"127.0.0.1:9160"})
-    conn, _ = cass.GetCassConn()
+    conn, _ = cass.GetCassConn("testing")
 
     defer func(){
       conn.Checkin()
       cassClient.Close()
     }
 
-    // 1 is replication factor, will return err if already exist
+    // 1 is replication factor, will return err if it already exists
     _ = conn.CreateKeyspace("testing",1)
 
     _ = conn.CreateCF("col_fam_name")
@@ -59,7 +59,11 @@ Inserting more than one row::
       "keyvalue2": map[string]string{"col1":"val1","col2": "val2"},
     }
 
-    err := conn.Mutate("col_fam_name",rows)
+    // 0 is the int64 NanoSecond timestamp, if you pass 0 it will generate
+    err := conn.Mutate("col_fam_name",rows,0)
+
+    // equivalent to
+    err := conn.Mutate("col_fam_name",rows,time.Now().UnixNano())
 
     if err != nil {
       t.Errorf("error, insert/read failed on multicol insert")
@@ -83,7 +87,8 @@ Counter Columns::
 Get Many for column family, and row key specified return columns::
 
     // get all columns by all, all = ct specified
-    colsall, errall := conn.GetAll("col_fam_name","keyvalue1",1000)
+    // true = "reversed", start from last column
+    colsall, errall := conn.GetAll("col_fam_name","keyvalue1", true,1000)
 
     // get Range (start/end) column comparator determines how start/end determined, also
     //   reversed (start at last row), and col limit ct
