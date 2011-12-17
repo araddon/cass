@@ -2260,7 +2260,7 @@ func (p *SchemaDisagreementException) TStructFields() thrift.TFieldContainer {
 type ColumnParent struct {
   thrift.TStruct
   _ interface{} "column_family"; // nil # 1
-  _ interface{} "column_family"; // nil # 2
+  //_ interface{} "column_family"; // nil # 2
   ColumnFamily string "column_family"; // 3
   SuperColumn string "super_column"; // 4
 }
@@ -2465,7 +2465,7 @@ func (p *ColumnParent) TStructFields() thrift.TFieldContainer {
 type ColumnPath struct {
   thrift.TStruct
   _ interface{} "column_family"; // nil # 1
-  _ interface{} "column_family"; // nil # 2
+  //_ interface{} "column_family"; // nil # 2
   ColumnFamily string "column_family"; // 3
   SuperColumn string "super_column"; // 4
   Column string "column"; // 5
@@ -6116,13 +6116,13 @@ type CfDef struct {
   Keyspace string "keyspace"; // 1
   Name string "name"; // 2
   ColumnType string "column_type"; // 3
-  _ interface{} "comparator_type"; // nil # 4
+  _4 interface{} "comparator_type"; // nil # 4
   ComparatorType string "comparator_type"; // 5
   SubcomparatorType string "subcomparator_type"; // 6
-  _ interface{} "comment"; // nil # 7
+  _7 interface{} "comment"; // nil # 7
   Comment string "comment"; // 8
   RowCacheSize float64 "row_cache_size"; // 9
-  _ interface{} "key_cache_size"; // nil # 10
+  _10 interface{} "key_cache_size"; // nil # 10
   KeyCacheSize float64 "key_cache_size"; // 11
   ReadRepairChance float64 "read_repair_chance"; // 12
   ColumnMetadata thrift.TList "column_metadata"; // 13
@@ -6133,9 +6133,9 @@ type CfDef struct {
   MaxCompactionThreshold int32 "max_compaction_threshold"; // 18
   RowCacheSavePeriodInSeconds int32 "row_cache_save_period_in_seconds"; // 19
   KeyCacheSavePeriodInSeconds int32 "key_cache_save_period_in_seconds"; // 20
-  _ interface{} "replicate_on_write"; // nil # 21
-  _ interface{} "replicate_on_write"; // nil # 22
-  _ interface{} "replicate_on_write"; // nil # 23
+  _21 interface{} "replicate_on_write"; // nil # 21
+  _22 interface{} "replicate_on_write"; // nil # 22
+  _23 interface{} "replicate_on_write"; // nil # 23
   ReplicateOnWrite bool "replicate_on_write"; // 24
   MergeShardsChance float64 "merge_shards_chance"; // 25
   KeyValidationClass string "key_validation_class"; // 26

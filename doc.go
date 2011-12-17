@@ -19,13 +19,14 @@ then install the *thriftlib/cassandra*, then the *cass* client::
 
 
 Usage
-====================================
+
+
 Create a Connection, Keyspace, Column Family, Insert, Read::
     
     import "cass", "fmt"
 
     
-    cassClient = cass.NewCassandra("testing", []string{"127.0.0.1:9160"})
+    cass.ConfigKeyspace("testing",[]string{"127.0.0.1:9160"}, 20 )
     conn, _ = cass.GetCassConn("testing")
 
     defer func(){

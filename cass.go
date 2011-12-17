@@ -146,7 +146,7 @@ func getConnFromPool(ks string, pool chan *CassandraConnection) (conn *Cassandra
 
   conn = <-pool
   Logf(DEBUG, "in checkout, pulled off pool: remaining = %d, connid=%d Server=%s\n", len(pool), conn.Id, conn.Server)
-
+  // BUG(ar):  an error occured on batch mutate <nil> <nil> <nil> Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
   if conn.Client == nil || conn.Client.Transport.IsOpen() == false {
 
     conn.pool = pool
@@ -475,8 +475,9 @@ func (c *CassandraConnection) get(rowkey string, cp *cassandra.ColumnPath) (cosc
   //    (retval446 *ColumnOrSuperColumn, ire *InvalidRequestException, nfe *NotFoundException, ue *UnavailableException, te *TimedOutException, err error)
   ret, ire, nfe, ue, te, err := c.Client.Get(rowkey, cp, cassandra.ONE)
   if ire != nil || nfe!= nil || ue != nil || te != nil || err != nil {
-    Log(ERROR, "Get Column Error, possibly column didn't exist? ", cp.ColumnFamily, rowkey ,ire,ue, te, err)
-    return ret, CassandraError("nothing returned for get ")
+    errmsg := fmt.Sprint("Get Error, possibly column didn't exist? ", cp.ColumnFamily, rowkey ,ire,ue, te, err)
+    Log(ERROR, errmsg)
+    return ret, CassandraError(errmsg)
   }
 
   return ret, nil
@@ -595,7 +596,7 @@ func (c *CassandraConnection) Query(cql, compression string) (rowMap map[string]
 
   ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
   if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
-    err = CassandraError(fmt.Sprint("nothing returned for Query ", ire, ue, te, sde, err))
+    err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
     Log(ERROR, err.Error())
     return rowMap, err
   }
