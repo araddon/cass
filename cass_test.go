@@ -10,7 +10,7 @@ import (
   "testing"
   //"fmt"
   //"os"
-  "thriftlib/cassandra"
+  "cass/cassandra"
   "flag"
   "strings"
   . "cass"

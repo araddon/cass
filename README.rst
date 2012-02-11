@@ -118,6 +118,7 @@ To Generate the Cassandra Go Thrift Client
 
 To generate from *cassandra.thrift*, you first need to have a working install of thrift.  Until changes make it into Thrift mainline you will need to use this modified version of thrift to support the newer Go Changes http://github.com/araddon/thrift .  This contains modifications to the go thrift compiler to allow compiling the cassandra.thrift::
     
-    thrift --gen go cassandra.thrift     
+    # cd to parent of cass folder
+    thrift --gen go -out cass cass/cassandra.thrift   
 
 

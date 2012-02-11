@@ -2260,7 +2260,7 @@ func (p *SchemaDisagreementException) TStructFields() thrift.TFieldContainer {
 type ColumnParent struct {
   thrift.TStruct
   _ interface{} "column_family"; // nil # 1
-  //_ interface{} "column_family"; // nil # 2
+  _2 interface{} "column_family"; // nil # 2
   ColumnFamily string "column_family"; // 3
   SuperColumn string "super_column"; // 4
 }
@@ -2465,7 +2465,7 @@ func (p *ColumnParent) TStructFields() thrift.TFieldContainer {
 type ColumnPath struct {
   thrift.TStruct
   _ interface{} "column_family"; // nil # 1
-  //_ interface{} "column_family"; // nil # 2
+  _2 interface{} "column_family"; // nil # 2
   ColumnFamily string "column_family"; // 3
   SuperColumn string "super_column"; // 4
   Column string "column"; // 5
@@ -6116,7 +6116,7 @@ type CfDef struct {
   Keyspace string "keyspace"; // 1
   Name string "name"; // 2
   ColumnType string "column_type"; // 3
-  _4 interface{} "comparator_type"; // nil # 4
+  _ interface{} "comparator_type"; // nil # 4
   ComparatorType string "comparator_type"; // 5
   SubcomparatorType string "subcomparator_type"; // 6
   _7 interface{} "comment"; // nil # 7

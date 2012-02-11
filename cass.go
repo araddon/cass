@@ -1,6 +1,3 @@
-/*
-  Cassandra Client for go
-*/
 package cass
 
 import (
@@ -8,37 +5,58 @@ import (
   "fmt" 
   "log"
   "net"
+  "strings"
   "sync"
-  "thriftlib/cassandra"
+  "cass/cassandra"
   "thrift"
   "time"
 )
 
 
-
-var defaultAddr = "127.0.0.1:9160"
-
 type CassandraError string
 func (e CassandraError) Error() string   { return "cass error " + string(e) }
 
-var LogLevel int = 1 // 0 = fatal, 1 = error, 2 = warn, 3 = info, 4 = debug
+// The default logger is nil in Cassandra, and the default log level is
+// 1= Error, to set them from within your app you set Logger, and LogLvel
+//
+//     func init()
+//       // Logger is in your app
+//       Logger =  log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
+//       cass.Logger = Logger
+//       cass.LogLevel = cass.DEBUG
+//    }
+//
+var Logger *log.Logger = new(log.Logger)  
 
 const (
-  FATAL = iota
-  ERROR
-  WARN
-  INFO
-  DEBUG
+  FATAL = 0
+  ERROR = 1
+  WARN  = 2
+  INFO  = 3
+  DEBUG = 4
 )
 
+var LogLevel int = ERROR
+
+func Debug(v ...interface{}){
+  doLog(fmt.Sprintln(v...), Logger)
+}
+func Debugf(format string, v ...interface{}){
+  doLog(fmt.Sprintf(format, v...), Logger)
+}
 func Log(logLvl int, v ...interface{}) {
   if LogLevel >= logLvl {
-    log.Println(v...)
+    doLog(fmt.Sprintln(v...), Logger)
+  }
+}
+func doLog(msg string, logger *log.Logger) {
+  if logger != nil {
+    Logger.Output(3, msg)
   }
 }
 func Logf(logLvl int, format string, v ...interface{}) {
   if LogLevel >= logLvl {
-    log.Printf(format, v...)
+    doLog(fmt.Sprintf(format, v...), Logger)
   }
 }
 
@@ -113,6 +131,9 @@ func CloseAll() {
   defer configMu.Unlock()
 
   for _, c := range configMap {
+
+    // TODO:  this is flawed, only closes non-checkedout connections?  
+    //  Maybe close the channel?
     pool := c.pool
     if len(pool) > 0 {
       for i := 0; i < len(pool); i++ {
@@ -207,7 +228,6 @@ func (conn *CassandraConnection) Open(keyspace string) error {
 func (conn *CassandraConnection) Close() {
 
   conn.Client = nil
-  conn.Checkin()
 
 }
 
@@ -347,25 +367,32 @@ func (c *CassandraConnection) DeleteCF(cf string) string {
   return ret
 }
 
+// Mutate set of rows/cols for those rows
+// Optional {@timestamp}, if you pass 0 it will create one for you
 func (c *CassandraConnection) Mutate(cf string, mutateArgs map[string]map[string]string, timestamp int64) (err error) {
 
   if timestamp == 0 {
     timestamp = time.Now().UnixNano() / 1e6 
   }
   
-  
-
   //1:required map<binary, map<string, list<Mutation>>> mutation_map,
   mutateMap := makeMutationMap(cf, mutateArgs, timestamp)
-    
-  //BatchMutate(mutation_map thrift.TMap, consistency_level ConsistencyLevel) 
-  //  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
-  ire, ue, te, err := c.Client.BatchMutate(mutateMap,cassandra.ONE)
-  if ire != nil || ue != nil || te != nil || err != nil {
-    Log(ERROR, "an error occured on batch mutate",ire,ue,te,err)
+
+  retry := func() error {
+
+    //BatchMutate(mutation_map thrift.TMap, consistency_level ConsistencyLevel) 
+    //  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
+    ire, ue, te, err := c.Client.BatchMutate(mutateMap,cassandra.ONE)
+    if ire != nil || ue != nil || te != nil || err != nil {
+      errmsg := fmt.Sprint("BatchMutate error occured on ", cf ,ire,ue,te,err)
+      Log(ERROR, errmsg)
+      return errors.New(errmsg)
+    }
+    return nil
   }
 
-  return
+  return retryForClosedConn(c,retry)
+
 }
 
 // from map of (name/value) pairs create cassandra columns
@@ -405,9 +432,24 @@ func makeMutationMap(cf string, mutate map[string]map[string]string, timestamp i
   return
 }
 
-/**
- *  Insert Single row and column(s)
- */
+type Retryable func() error
+
+func retryForClosedConn(c *CassandraConnection, retryfunc Retryable) error {
+  
+  err := retryfunc()
+
+  if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
+    // Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
+    Log(ERROR, "Trying to reopen for add/update ")
+    c.Close()
+    c.Open(c.Keyspace)
+    return retryfunc()
+  }
+  return err
+
+} 
+
+// Insert Single row and column(s)
 func (c *CassandraConnection) Insert(cf string, key string, cols map[string]string, timestamp int64) (err error) {
   
   if timestamp == 0 {
@@ -417,7 +459,7 @@ func (c *CassandraConnection) Insert(cf string, key string, cols map[string]stri
   if len(cols) > 1 {
     //1:required map<binary, map<string, list<Mutation>>> mutation_map,
     var mutateArgs map[string]map[string]string
-    mutateArgs = make(map[string]map[string]string)
+    mutateArgs = make(map[string]map[string]string)    
     mutateArgs[key] = cols
     mutateMap := makeMutationMap(cf, mutateArgs, timestamp)
         
@@ -430,17 +472,24 @@ func (c *CassandraConnection) Insert(cf string, key string, cols map[string]stri
 
   } else {
     
-    //Insert(key string, column_parent *ColumnParent, column *Column, consistency_level   ConsistencyLevel) 
-    //  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
     columns := makeColumns(cols, timestamp)
     cp := NewColumnParent(cf)
 
-    ire, ue, te, err := c.Client.Insert(key,cp,&columns[0],cassandra.ONE)
+    retry := func() error {
 
-    if ire != nil || ue != nil || te != nil || err != nil {
-      Log(ERROR, "an error occured",ire,ue,te,err)
-      return CassandraError("error" + fmt.Sprint(ire,ue,te,err))
+      //Insert(key string, column_parent *ColumnParent, column *Column, consistency_level   ConsistencyLevel) 
+      //  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
+      ire, ue, te, err := c.Client.Insert(key,cp,&columns[0],cassandra.ONE)
+
+      if ire != nil || ue != nil || te != nil || err != nil {
+        errmsg := fmt.Sprint("Insert error occured on ", cf, " key ", key,ire,ue,te,err)
+        Log(ERROR, errmsg)
+        return errors.New(errmsg)
+      }
+      return nil
     }
+    return retryForClosedConn(c,retry)
+    
   }
 
   return
@@ -469,6 +518,24 @@ func (c *CassandraConnection) Add(cf , key string, incr int64) error {
   return nil
 }
 
+
+type RetryableGet func() (interface{},error)
+
+func retryGetForClosedConn(c *CassandraConnection, retryfunc RetryableGet) (interface{},error) {
+  
+  ret, err := retryfunc()
+
+  if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
+    // Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
+    Log(ERROR,"Trying to close/reopoen connection")
+    c.Close()
+    c.Open(c.Keyspace)
+    return retryfunc()
+  }
+  return ret, err
+
+} 
+
 func (c *CassandraConnection) get(rowkey string, cp *cassandra.ColumnPath) (cosc *cassandra.ColumnOrSuperColumn, err error) {
   
   //Get(key string, column_path *ColumnPath, consistency_level ConsistencyLevel) 
@@ -477,6 +544,9 @@ func (c *CassandraConnection) get(rowkey string, cp *cassandra.ColumnPath) (cosc
   if ire != nil || nfe!= nil || ue != nil || te != nil || err != nil {
     errmsg := fmt.Sprint("Get Error, possibly column didn't exist? ", cp.ColumnFamily, rowkey ,ire,ue, te, err)
     Log(ERROR, errmsg)
+
+    // an error occured on batch mutate <nil> <nil> <nil> Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
+
     return ret, CassandraError(errmsg)
   }
 
@@ -523,21 +593,29 @@ func (c *CassandraConnection) getslice(rowkey string, cp *cassandra.ColumnParent
 
   //GetSlice(key string, column_parent *ColumnParent, predicate *SlicePredicate, consistency_level ConsistencyLevel) 
   //  (retval447 thrift.TList, ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
-  ret, ire, ue, te, err := c.Client.GetSlice(rowkey, cp, sp, cassandra.ONE)
-  if ire != nil || ue != nil || te != nil || err != nil {
-    err = CassandraError(fmt.Sprint("nothing returned for GetRange ", ire, ue, te, err))
-    Log(ERROR, err.Error())
-    return cassCol, err
-  }
-  if ret != nil && ret.Len() > 0 {
+
+  retry := func() (interface{},error) {
+
+    ret, ire, ue, te, err := c.Client.GetSlice(rowkey, cp, sp, cassandra.ONE)
+    if ire != nil || ue != nil || te != nil || err != nil {
+      err = CassandraError(fmt.Sprint("Error returned for Get ", ire, ue, te, err, c.Client))
+      Log(ERROR, err.Error())
+      return cassCol, err
+    }
     cc := make([]cassandra.Column,ret.Len())
-    for i := 0; i < ret.Len(); i++ {
-      cc[i] = *(ret.At(i).(*cassandra.ColumnOrSuperColumn)).Column
+    if ret != nil && ret.Len() > 0 {
+      for i := 0; i < ret.Len(); i++ {
+        cc[i] = *(ret.At(i).(*cassandra.ColumnOrSuperColumn)).Column
+      }
     }
     return &cc, nil
   }
+  retiface, err2 := retryGetForClosedConn(c,retry)
+  if retiface != nil {
+    return retiface.(*[]cassandra.Column), err2
+  }
+  return nil, err2
 
-  return cassCol, nil
 }
 
 func (c *CassandraConnection) GetCols(cf, rowkey string, cols []string) (cassCol *[]cassandra.Column, err error) {
