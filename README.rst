@@ -8,13 +8,12 @@ Installation
 
 First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ ::
 
-    goinstall github.com/araddon/thrift4go
+    go get github.com/araddon/thrift4go
 
 
-then install the *thriftlib/cassandra*, then the *cass* client::
+then install the go libs::
     
-    goinstall github.com/araddon/cass/tree/master/thrift/1.0/gen-go/cassandra
-    goinstall github.com/araddon/cass
+    go get github.com/araddon/cass
 
 
 Usage
