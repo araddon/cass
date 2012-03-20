@@ -6,7 +6,7 @@ Installation
 
 First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ .  ::
     
-    go get github.com/araddon/cass
+    go get github.com/araddon/thrift4go/lib/go/thrift
 
     # then install the go cass
     
