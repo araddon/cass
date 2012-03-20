@@ -7,13 +7,14 @@ import (
   "net"
   "strings"
   "sync"
-  "cass/cassandra"
+  "github.com/araddon/cass/cassandra"
   "thrift"
   "time"
 )
 
 
 type CassandraError string
+
 func (e CassandraError) Error() string   { return "cass error " + string(e) }
 
 // The default logger is nil in Cassandra, and the default log level is

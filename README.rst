@@ -7,9 +7,16 @@ As of Nov 22-11:  Very early version, has very custom build chain (for now).   B
 Installation
 =====================
 
-First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ ::
+First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ . But you must modify your $GOPATH and add this as root. This is a pain for now, hopefully in the future if go tool has more options it will be easier.  ::
+    
+    # add to your env the $GOPATH
+    export GOPATH=/home/ubuntu/src/thrift4go/lib/go
 
-    go get github.com/araddon/thrift4go
+    git clone git://github.com/araddon/thrift4go.git
+    cd thrift4go
+    git checkout weekly  
+    cd lib/go/thrift/src
+    go install
 
 
 then install the go libs::
@@ -36,12 +43,8 @@ Create a Connection, Keyspace, Column Family, Insert, Read::
 
     _ = conn.CreateCF("col_fam_name")
 
-    var cols = map[string]string{
-      "lastname": "golang",
-    }
-
     // if you pass 0 timestamp it will generate one
-    err := conn.Insert("col_fam_name","keyinserttest",cols,0)
+    err := conn.Insert("col_fam_name","keyinserttest",map[string]string{"lastname": "golang"},0)
     if err != nil {
       fmt.Println("error, insert/read failed")
     } 

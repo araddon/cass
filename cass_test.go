@@ -1,7 +1,7 @@
 /*
 Cassandra Client testing
 
->>>gotest -host 192.168.1.56:9160 
+>>>go test -host 192.168.1.56:9160 
 
 */
 package cass_test
@@ -10,7 +10,7 @@ import (
   "testing"
   //"fmt"
   //"os"
-  "cass/cassandra"
+  "github.com/araddon/cass/cassandra"
   "flag"
   "strings"
   . "cass"
