@@ -8,7 +8,7 @@ import (
   "strings"
   "sync"
   "github.com/araddon/cass/cassandra"
-  "thrift"
+  "github.com/araddon/thrift4go/lib/go/thrift"
   "time"
 )
 

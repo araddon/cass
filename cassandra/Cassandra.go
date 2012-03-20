@@ -5,7 +5,7 @@
 package cassandra;
 
 import (
-        "thrift"
+        "github.com/araddon/thrift4go/lib/go/thrift"
         "fmt"
 )
 

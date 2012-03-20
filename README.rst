@@ -1,25 +1,14 @@
 A simple Cassandra client in go.  Currently runs against cassandra 1.0.  
 
-As of Nov 22-11:  Very early version, has very custom build chain (for now).   Built against Go Weekly so don't run *goinstall github.com/araddon/cass* unless you have a very recent goweekly/HEAD install.  It uses the new *errors* instead of *os.Error* and other changes.   Because of the Go changes it has custom `Thrift Go Lib <http://github.com/araddon/thrift4go>`_.   If you hack it needs a modified version of core `Thrift <http://github.com/araddon/thrift` in order to generate the /thrift/1.0/gen-go libs.  See commit log to see changes of the thrift or go4thrift changes.
-
-
 
 Installation
 =====================
 
-First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ . But you must modify your $GOPATH and add this as root. This is a pain for now, hopefully in the future if go tool has more options it will be easier.  ::
+First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ .  ::
     
-    # add to your env the $GOPATH
-    export GOPATH=/home/ubuntu/src/thrift4go/lib/go
+    go get github.com/araddon/cass
 
-    git clone git://github.com/araddon/thrift4go.git
-    cd thrift4go
-    git checkout weekly  
-    cd lib/go/thrift/src
-    go install
-
-
-then install the go libs::
+    # then install the go cass
     
     go get github.com/araddon/cass
 
@@ -28,7 +17,7 @@ Usage
 ====================================
 Create a Connection, Keyspace, Column Family, Insert, Read::
     
-    import "cass", "fmt"
+    import "github.com/araddon/cass", "fmt"
 
     cass.ConfigKeyspace("testing",[]string{"127.0.0.1:9160"}, 20 )
     conn, _ = cass.GetCassConn("testing")
@@ -118,6 +107,9 @@ CQL::
 
 To Generate the Cassandra Go Thrift Client
 ===========================================
+
+As of Mar-19-12:  Because of the Go changes it has custom `Thrift Go Lib <http://github.com/araddon/thrift4go>`_.   If you hack it needs a modified version of core `Thrift <http://github.com/araddon/thrift` in order to generate the /thrift/1.0/gen-go libs.  See commit log to see changes of the thrift or go4thrift changes.
+
 
 To generate from *cassandra.thrift*, you first need to have a working install of thrift.  Until changes make it into Thrift mainline you will need to use this modified version of thrift to support the newer Go Changes http://github.com/araddon/thrift .  This contains modifications to the go thrift compiler to allow compiling the cassandra.thrift::
     
