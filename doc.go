@@ -1,61 +1,54 @@
 /*
 Cass:  A simple Cassandra client in go.  Currently runs against cassandra 1.0.  
 
-As of Nov 22-11:  Very early version, has very custom build chain (for now).   Built against Go Weekly so don't run *goinstall github.com/araddon/cass* unless you have a very recent goweekly/HEAD install.  It uses the new *errors* instead of *os.Error* and other changes.   Because of the Go changes it has custom `Thrift Go Lib <http://github.com/araddon/thrift4go>`_.   If you hack it needs a modified version of core `Thrift <http://github.com/araddon/thrift` in order to generate the /thrift/1.0/gen-go libs.  See commit log to see changes of the thrift or go4thrift changes.
-
-
 Installation
 =====================
 
-First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ ::
+First get a working version of Thrift Go Lib http://github.com/araddon/thrift4go :
 
-    goinstall github.com/araddon/thrift4go
+    go get github.com/araddon/thrift4go/lib/go/thrift
 
-
-then install the *thriftlib/cassandra*, then the *cass* client::
+    # then install the go cass
     
-    goinstall github.com/araddon/cass/tree/master/thrift/1.0/gen-go/cassandra
-    goinstall github.com/araddon/cass
+    go get github.com/araddon/cass
 
 
 Usage
 
 
-Create a Connection, Keyspace, Column Family, Insert, Read::
+Create a Connection, Keyspace, Column Family, Insert, Read :
     
     import "cass", "fmt"
 
-    
-    cass.ConfigKeyspace("testing",[]string{"127.0.0.1:9160"}, 20 )
-    conn, _ = cass.GetCassConn("testing")
+    func main() {
+      cass.ConfigKeyspace("testing",[]string{"127.0.0.1:9160"}, 20 )
+      conn, _ = cass.GetCassConn("testing")
 
-    defer func(){
-      conn.Checkin()
-      cassClient.Close()
-    }
+      defer conn.Checkin()  // there is a pool of connections, so you must checkin/out
 
-    // 1 is replication factor, will return err if already exist
-    _ = conn.CreateKeyspace("testing",1)
+      // 1 is replication factor, will return err if already exist
+      _ = conn.CreateKeyspace("testing",1)
 
-    _ = conn.CreateCF("col_fam_name")
+      _ = conn.CreateCF("col_fam_name")
 
-    var cols = map[string]string{
-      "lastname": "golang",
-    }
+      var cols = map[string]string{
+        "lastname": "golang",
+      }
 
-    // if you pass 0 timestamp it will generate one
-    err := conn.Insert("col_fam_name","keyinserttest",cols,0)
-    if err != nil {
-      fmt.Println("error, insert/read failed")
-    } 
+      // if you pass 0 timestamp it will generate one
+      err := conn.Insert("col_fam_name","keyinserttest",cols,0)
+      if err != nil {
+        fmt.Println("error, insert/read failed")
+      } 
 
-    col, _ := conn.Get("col_fam_name","keyinserttest","lastname")
-    if col == nil && col.Value != "cassgo" {
-      fmt.Println("insert/get single row, single col failed: testcol - keyinserttest")
+      col, _ := conn.Get("col_fam_name","keyinserttest","lastname")
+      if col == nil && col.Value != "cassgo" {
+        fmt.Println("insert/get single row, single col failed: testcol - keyinserttest")
+      }
     }
     
 
-Inserting more than one row::
+Inserting more than one row :
 
     rows := map[string]map[string]string{
       "keyvalue1": map[string]string{"col1":"val1","col2": "val2"},
@@ -73,7 +66,7 @@ Inserting more than one row::
     } 
 
 
-Counter Columns::
+Counter Columns :
 
     _ = conn.CreateCounterCF("testct")// testct is a column family name
 
@@ -87,7 +80,7 @@ Counter Columns::
     }
 
 
-Get Many for column family, and row key specified return columns::
+Get Many for column family, and row key specified return columns :
 
     // get all columns by all, all = ct specified
     // true = "reversed", start from last column
@@ -101,7 +94,7 @@ Get Many for column family, and row key specified return columns::
     cols2, err3 := conn.GetCols("col_fam_name","keyvalue1",[]string{"col2","col4"})
     
 
-CQL::
+CQL :
     
   _, err1 := conn.Query("INSERT INTO col_fam_name (KEY, col1,col2,col3,col4) VALUES('testingcqlinsert','val1','val2','val3','val4');", "NONE")
   if err1 != nil {

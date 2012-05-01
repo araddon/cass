@@ -1,5 +1,7 @@
 A simple Cassandra client in go.  Currently runs against cassandra 1.0.  
 
+You probably should consider https://github.com/carloscm/gossie instead, it is more feature rich.  I started this before it was available.
+
 
 Installation
 =====================
@@ -12,35 +14,39 @@ First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4
     
     go get github.com/araddon/cass
 
+Documentation
+==================
+
+See full doc here: http://gopkgdoc.appspot.com/pkg/github.com/araddon/cass
+
 
 Usage
 ====================================
 Create a Connection, Keyspace, Column Family, Insert, Read::
     
     import "github.com/araddon/cass", "fmt"
+    func main() {
 
-    cass.ConfigKeyspace("testing",[]string{"127.0.0.1:9160"}, 20 )
-    conn, _ = cass.GetCassConn("testing")
+      cass.ConfigKeyspace("testing",[]string{"127.0.0.1:9160"}, 20 )
+      conn, _ = cass.GetCassConn("testing")
+      // since there is a pool of connections, you must checkin
+      defer conn.Checkin()
 
-    defer func(){
-      conn.Checkin()
-      cassClient.Close()
-    }
+      // 1 is replication factor, will return err if it already exists
+      _ = conn.CreateKeyspace("testing",1)
 
-    // 1 is replication factor, will return err if it already exists
-    _ = conn.CreateKeyspace("testing",1)
+      _ = conn.CreateCF("col_fam_name")
 
-    _ = conn.CreateCF("col_fam_name")
+      // if you pass 0 timestamp it will generate one
+      err := conn.Insert("col_fam_name","keyinserttest",map[string]string{"lastname": "golang"},0)
+      if err != nil {
+        fmt.Println("error, insert/read failed")
+      } 
 
-    // if you pass 0 timestamp it will generate one
-    err := conn.Insert("col_fam_name","keyinserttest",map[string]string{"lastname": "golang"},0)
-    if err != nil {
-      fmt.Println("error, insert/read failed")
-    } 
-
-    col, _ := conn.Get("col_fam_name","keyinserttest","lastname")
-    if col == nil && col.Value != "cassgo" {
-      fmt.Println("insert/get single row, single col failed: testcol - keyinserttest")
+      col, _ := conn.Get("col_fam_name","keyinserttest","lastname")
+      if col == nil && col.Value != "cassgo" {
+        fmt.Println("insert/get single row, single col failed: testcol - keyinserttest")
+      }
     }
     
 

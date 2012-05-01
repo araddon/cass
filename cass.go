@@ -21,13 +21,10 @@ func (e CassandraError) Error() string   { return "cass error " + string(e) }
 // 1= Error, to set them from within your app you set Logger, and LogLvel
 //
 //     func init()
-//       // Logger is in your app
-//       Logger =  log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
-//       cass.Logger = Logger
-//       cass.LogLevel = cass.DEBUG
+//       cass.SetLogger(cass.DEBUG, log.New(os.Stdout, "", log.Ltime|log.Lshortfile))
 //    }
 //
-var Logger *log.Logger = new(log.Logger)  
+var Logger *log.Logger 
 
 const (
   FATAL = 0
@@ -35,6 +32,7 @@ const (
   WARN  = 2
   INFO  = 3
   DEBUG = 4
+  None  = -1
 )
 
 var LogLevel int = ERROR
@@ -60,7 +58,10 @@ func Logf(logLvl int, format string, v ...interface{}) {
     doLog(fmt.Sprintf(format, v...), Logger)
   }
 }
-
+func SetLogger( logLevel int, logger *log.Logger) {
+  Logger = logger
+  LogLevel = logLevel
+}
 
 type CassandraConnection struct {
   Keyspace string
@@ -280,6 +281,7 @@ func (c *CassandraConnection) ColumnsString() (out string) {
   return
 }
 
+// Create a keyspace, with ReplicationFactor *repfactor*
 func (c *CassandraConnection) CreateKeyspace(ks string,repfactor int) string {
     
   ksdef := cassandra.NewKsDef()

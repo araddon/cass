@@ -13,7 +13,7 @@ import (
   "github.com/araddon/cass/cassandra"
   "flag"
   "strings"
-  . "cass"
+  . "github.com/araddon/cass"
 )
 
 var conn *CassandraConnection
