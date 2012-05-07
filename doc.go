@@ -9,7 +9,7 @@ First get a working version of Thrift Go Lib http://github.com/araddon/thrift4go
     go get github.com/araddon/thrift4go/lib/go/thrift
 
     # then install the go cass
-    
+
     go get github.com/araddon/cass
 
 
@@ -17,7 +17,7 @@ Usage
 
 
 Create a Connection, Keyspace, Column Family, Insert, Read :
-    
+
     import "cass", "fmt"
 
     func main() {
@@ -46,7 +46,7 @@ Create a Connection, Keyspace, Column Family, Insert, Read :
         fmt.Println("insert/get single row, single col failed: testcol - keyinserttest")
       }
     }
-    
+
 
 Inserting more than one row :
 
@@ -72,7 +72,7 @@ Counter Columns :
 
     _ = conn.Add("testct","keyinserttest",int64(9))
     _ = conn.Add("testct","keyinserttest",int64(10))
-     
+
     ct := conn.GetCounter("testct","keyinserttest")
 
     if ct != int64(19) {
@@ -92,10 +92,10 @@ Get Many for column family, and row key specified return columns :
 
     // get specific cols
     cols2, err3 := conn.GetCols("col_fam_name","keyvalue1",[]string{"col2","col4"})
-    
+
 
 CQL :
-    
+
   _, err1 := conn.Query("INSERT INTO col_fam_name (KEY, col1,col2,col3,col4) VALUES('testingcqlinsert','val1','val2','val3','val4');", "NONE")
   if err1 != nil {
     t.Errorf("CQL Query Insert failed by returning error %s", err1.Error())
@@ -113,7 +113,7 @@ To Generate the Cassandra Go Thrift Client
 ===========================================
 
 To generate from *cassandra.thrift*, you first need to have a working install of thrift.  Until changes make it into Thrift mainline you will need to use this modified version of thrift to support the newer Go Changes http://github.com/araddon/thrift .  This contains modifications to the go thrift compiler to allow compiling the cassandra.thrift::
-    
+
     thrift --gen go cassandra.thrift     
 
 
