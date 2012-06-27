@@ -4,17 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/araddon/cass/cassandra"
-	"github.com/araddon/thrift4go/lib/go/thrift"
+	"github.com/pomack/thrift4go/lib/go/src/thrift"
 	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
 )
-
-type CassandraError string
-
-func (e CassandraError) Error() string { return "cass error " + string(e) }
 
 // The default logger is nil in Cassandra, and the default log level is
 // 1= Error, to set them from within your app you set Logger, and LogLvel
@@ -23,8 +19,6 @@ func (e CassandraError) Error() string { return "cass error " + string(e) }
 //       cass.SetLogger(cass.DEBUG, log.New(os.Stdout, "", log.Ltime|log.Lshortfile))
 //    }
 //
-var Logger *log.Logger
-
 const (
 	FATAL = 0
 	ERROR = 1
@@ -34,17 +28,30 @@ const (
 	None  = -1
 )
 
-var LogLevel int = ERROR
+var (
+	Logger    *log.Logger
+	logPrefix string = "CASS "
+	LogColor         = map[int]string{FATAL: "\033[0m\033[37m",
+		ERROR: "\033[0m\033[31m",
+		WARN:  "\033[0m\033[33m",
+		INFO:  "\033[0m\033[32m",
+		DEBUG: "\033[0m\033[34m"}
+	LogLevel int = ERROR
+)
+
+type CassandraError string
+
+func (e CassandraError) Error() string { return "cass error " + string(e) }
 
 func Debug(v ...interface{}) {
-	doLog(fmt.Sprintln(v...), Logger)
+	DoLog(3, DEBUG, fmt.Sprint(v...), Logger)
 }
 func Debugf(format string, v ...interface{}) {
-	doLog(fmt.Sprintf(format, v...), Logger)
+	DoLog(3, DEBUG, fmt.Sprintf(format, v...), Logger)
 }
 func Log(logLvl int, v ...interface{}) {
 	if LogLevel >= logLvl {
-		doLog(fmt.Sprintln(v...), Logger)
+		DoLog(3, logLvl, fmt.Sprint(v...), Logger)
 	}
 }
 func doLog(msg string, logger *log.Logger) {
@@ -52,9 +59,15 @@ func doLog(msg string, logger *log.Logger) {
 		Logger.Output(3, msg)
 	}
 }
+func DoLog(depth, logLvl int, msg string, lgr *log.Logger) {
+	if lgr != nil {
+		lgr.Output(depth, logPrefix+LogColor[logLvl]+msg+"\033[0m")
+	}
+}
+
 func Logf(logLvl int, format string, v ...interface{}) {
 	if LogLevel >= logLvl {
-		doLog(fmt.Sprintf(format, v...), Logger)
+		DoLog(3, logLvl, fmt.Sprintf(format, v...), Logger)
 	}
 }
 func SetLogger(logLevel int, logger *log.Logger) {
@@ -80,14 +93,10 @@ type KeyspaceConfig struct {
 	pool     chan *CassandraConnection
 }
 
-//type ConnMap map[string]chan *CassandraConnection
 type KeyspaceConfigMap map[string]*KeyspaceConfig
 
 var configMu sync.Mutex
 var configMap = make(KeyspaceConfigMap)
-
-//the default connection pool
-//var connPool chan *CassandraConnection
 
 func ConfigKeyspace(keyspace string, serverlist []string, poolsize int) *KeyspaceConfig {
 	config := &KeyspaceConfig{servers: serverlist, Keyspace: keyspace, MaxPoolSize: poolsize}
@@ -115,6 +124,7 @@ func (c *KeyspaceConfig) makePool() {
 		}
 	}
 }
+
 func ConnPoolSize(keyspace string) int {
 	configMu.Lock()
 	defer configMu.Unlock()
@@ -167,7 +177,7 @@ func GetCassConn(keyspace string) (conn *CassandraConnection, err error) {
 func getConnFromPool(ks string, pool chan *CassandraConnection) (conn *CassandraConnection, err error) {
 
 	conn = <-pool
-	Logf(DEBUG, "in checkout, pulled off pool: remaining = %d, connid=%d Server=%s\n", len(pool), conn.Id, conn.Server)
+	Logf(DEBUG, "in checkout, pulled off pool: remaining = %d, connid=%d Server=%s", len(pool), conn.Id, conn.Server)
 	// BUG(ar):  an error occured on batch mutate <nil> <nil> <nil> Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
 	if conn.Client == nil || conn.Client.Transport.IsOpen() == false {
 
@@ -219,9 +229,12 @@ func (conn *CassandraConnection) Open(keyspace string) error {
 	if ire != nil || er != nil {
 		// most likely this is because it hasn't been created yet, so we will
 		// ignore for now, as SetKeyspace() is purely optional
-		Log(DEBUG, ire, er)
+		Log(ERROR, ire, er)
 	}
-
+	e, t3e := conn.Client.SetCqlVersion("3.0.0")
+	if e != nil || t3e != nil {
+		Log(ERROR, e, t3e)
+	}
 	return nil
 }
 
@@ -281,28 +294,20 @@ func (c *CassandraConnection) ColumnsString() (out string) {
 }
 
 // Create a keyspace, with ReplicationFactor *repfactor*
-func (c *CassandraConnection) CreateKeyspace(ks string, repfactor int) string {
+func (c *CassandraConnection) CreateKeyspace(ks string, repfactor int) error {
 
-	ksdef := cassandra.NewKsDef()
-	ksdef.StrategyClass = "org.apache.cassandra.locator.SimpleStrategy"
-	ksdef.Name = ks
-	ksdef.ReplicationFactor = int32(repfactor)
-	ksdef.CfDefs = thrift.NewTList(thrift.LIST, 0) // requires an empty cf def list
-	//SystemAddKeyspace(ks_def *KsDef) 
-	//  (retval470 string, ire *InvalidRequestException, sde *SchemaDisagreementException, err error)
-	ret, ire, sde, err := c.Client.SystemAddKeyspace(ksdef)
-	if ire != nil || sde != nil || err != nil {
-		Log(ERROR, "Keyspace Creation Error ", ire, sde, err)
-	} else {
-		Log(DEBUG, "Created Keyspace ", ks, ret)
-		_, er := c.Client.SetKeyspace(c.Keyspace)
-		if er != nil {
-			Log(ERROR, "Error setting keyspace to ", ks, " ", er.Error())
-		}
+	_, err := c.Query(fmt.Sprintf(`CREATE KEYSPACE %s 
+		WITH strategy_class = 'SimpleStrategy'
+  			AND strategy_options:replication_factor = %d;`, ks, repfactor), "NONE")
+	if err != nil {
+		Log(ERROR, "Create Keyspace failed %s ", err)
+		return err
 	}
-
-	return ret
-
+	ire, er := c.Client.SetKeyspace(ks)
+	if ire != nil || er != nil {
+		Log(ERROR, ire, er)
+	}
+	return nil
 }
 
 func (c *CassandraConnection) DeleteKeyspace(ks string) string {
@@ -351,8 +356,9 @@ func (c *CassandraConnection) createCF(cf, comparator, validation, keyvalidation
 	ret, ire, sde, err := c.Client.SystemAddColumnFamily(cfdef)
 	if ire != nil || sde != nil || err != nil {
 		Log(ERROR, "an error occured", ire, sde, err)
+	} else {
+		Log(DEBUG, "Created Column Family ", cf, ret)
 	}
-	Log(DEBUG, "Created Column Family ", cf, ret)
 	return ret
 }
 
@@ -668,7 +674,7 @@ func (c *CassandraConnection) GetRange(cf, rowkey, start, finish string, reverse
  *  - Query
  *  - Compression
  */
-func (c *CassandraConnection) Query(cql, compression string) (rowMap map[string]*[]cassandra.Column, err error) {
+func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandra.Column, err error) {
 
 	//ExecuteCqlQuery(query string, compression Compression) 
 	//  (retval474 *CqlResult, ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, sde *SchemaDisagreementException, err error)
@@ -677,28 +683,32 @@ func (c *CassandraConnection) Query(cql, compression string) (rowMap map[string]
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 		err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
 		Log(ERROR, err.Error())
-		return rowMap, err
+		return rows, err
 	}
 
 	if ret != nil && ret.Rows != nil {
 		rowCt := ret.Rows.Len()
-		rowMap = make(map[string]*[]cassandra.Column, rowCt)
+		//Debug("RowCt = ", rowCt)
+		rows = make([][]*cassandra.Column, rowCt)
 		var cqlRow cassandra.CqlRow
 		//cols := make([]cassandra.Column, rowCt)
 		for i := 0; i < rowCt; i++ {
 			cr := (ret.Rows.At(i)).(*cassandra.CqlRow)
 			cqlRow = *cr
-			cols := make([]cassandra.Column, cqlRow.Columns.Len())
+			//Debug(*cr)
+			//Debug(cr.Key)
+			cols := make([]*cassandra.Column, cqlRow.Columns.Len())
 			for x := 0; x < cqlRow.Columns.Len(); x++ {
-				cols[x] = *cqlRow.Columns.At(x).(*cassandra.Column)
+				cols[x] = cqlRow.Columns.At(x).(*cassandra.Column)
+				//cols[x] = cqlRow.Columns.At(x).(cassandra.Column)
 			}
-			rowMap[cqlRow.Key] = &cols
+			rows[i] = cols
 			//*(ret.At(i).(*cassandra.ColumnOrSuperColumn)).Column
 			//cols[i] = (ret.Rows.At(i)).(cassandra.Column)
 		}
-		return rowMap, nil
+		return rows, nil
 	}
-	return rowMap, err
+	return rows, err
 }
 
 /**
