@@ -6,9 +6,9 @@ You probably should consider https://github.com/carloscm/gossie instead, it is m
 Installation
 =====================
 
-First get a working version of `Thrift Go Lib <http://github.com/araddon/thrift4go>`_ .  ::
+First get a working version of `Thrift Go Lib <http://github.com/pomack/thrift4go>`_ .  ::
     
-    go get github.com/araddon/thrift4go/lib/go/thrift
+    go get github.com/pomack/thrift4go/lib/go/src/thrift
 
     # then install the go cass
     
@@ -22,6 +22,39 @@ See full doc here: http://gopkgdoc.appspot.com/pkg/github.com/araddon/cass
 
 Usage
 ====================================
+CQL::
+    
+  err, err1 := conn.Client.SetCqlVersion("3.0.0")
+  if err != nil || err1 != nil {
+    log.Println(err, err2)
+  }
+
+  res, err2 := conn.Query(`
+    CREATE TABLE user (
+      customerid int,
+      uid int,
+      gob blob,
+      PRIMARY KEY (customerid, uid)
+    );`, "NONE")
+
+  if err2 != nil {
+    log.Println("CQL Query create failed by returning error ", err)
+  }
+
+  cql := fmt.Sprintf(`INSERT INTO user (customerid, uid, gob) VALUES (1234,128,'%#x');`, "gobdata")
+  
+  if _, err3 := conn.Query(cql, "NONE"); err3 != nil {
+    log.Println("CQL Query Insert failed by returning error ", err3)
+  } 
+
+
+  rows, err4 := conn.Query("SELECT * FROM user WHERE customerid=1234;", "NONE")
+  
+  if len(rows) != 1 {
+    log.Printf("Query failed was %v \n", rows)
+  }
+
+  
 Create a Connection, Keyspace, Column Family, Insert, Read::
     
     import "github.com/araddon/cass", "fmt"
@@ -95,20 +128,6 @@ Get Many for column family, and row key specified return columns::
     // get specific cols
     cols2, err3 := conn.GetCols("col_fam_name","keyvalue1",[]string{"col2","col4"})
     
-
-CQL::
-    
-  _, err1 := conn.Query("INSERT INTO col_fam_name (KEY, col1,col2,col3,col4) VALUES('testingcqlinsert','val1','val2','val3','val4');", "NONE")
-  if err1 != nil {
-    t.Errorf("CQL Query Insert failed by returning error %s", err1.Error())
-  } 
-
-
-  rows, err := conn.Query("SELECT col1,col2,col3,col4 FROM col_fam_name WHERE KEY='testingcqlinsert';", "NONE")
-  cols := rows["testingcqlinsert"]
-  if col.Value != "val1" || col.Name != "col1" {
-    t.Errorf("Query failed with wrong n/v expected col1:val1 but was %s:%s", col.Name, col.Value)
-  }
 
 
 To Generate the Cassandra Go Thrift Client
