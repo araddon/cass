@@ -15,7 +15,7 @@ import (
 // The default logger is nil in Cassandra, and the default log level is
 // 1= Error, to set them from within your app you set Logger, and LogLvel
 //
-//     func init()
+//    func init()
 //       cass.SetLogger(cass.DEBUG, log.New(os.Stdout, "", log.Ltime|log.Lshortfile))
 //    }
 //
@@ -679,11 +679,29 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 	//ExecuteCqlQuery(query string, compression Compression) 
 	//  (retval474 *CqlResult, ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, sde *SchemaDisagreementException, err error)
 
+	if c.Client == nil {
+		Logf(ERROR, "Nil Client")
+		return nil, errors.New("No Client for cass conn")
+	}
 	ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
-		err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
-		Log(ERROR, err.Error())
-		return rows, err
+		if strings.Contains(err.Error(), "Remote side has closed") {
+			// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
+			Log(ERROR, "Trying to reopen for add/update ")
+			c.Close()
+			c.Open(c.Keyspace)
+			ret, ire, ue, te, sde, err = c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
+			if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
+				err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
+				Log(ERROR, err.Error())
+				return rows, err
+			}
+		} else {
+			err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
+			Log(ERROR, err.Error())
+			return rows, err
+		}
+
 	}
 
 	if ret != nil && ret.Rows != nil {
