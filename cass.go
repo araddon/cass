@@ -681,11 +681,24 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 
 	ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
-		err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
-		Log(ERROR, err.Error())
-		return rows, err
-	}
+		if strings.Contains(err.Error(), "Remote side has closed") {
+			// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
+			Log(ERROR, "Trying to reopen for add/update ")
+			c.Close()
+			c.Open(c.Keyspace)
+			ret, ire, ue, te, sde, err = c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
+			if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
+				err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
+				Log(ERROR, err.Error())
+				return rows, err
+			}
+		} else {
+			err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
+			Log(ERROR, err.Error())
+			return rows, err
+		}
 
+	}
 	if ret != nil && ret.Rows != nil {
 		rowCt := ret.Rows.Len()
 		//Debug("RowCt = ", rowCt)
