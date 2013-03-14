@@ -99,16 +99,10 @@ var configMu sync.Mutex
 var configMap = make(KeyspaceConfigMap)
 
 func ConfigKeyspace(keyspace string, serverlist []string, poolsize int) *KeyspaceConfig {
-	configMu.Lock()
-	defer configMu.Unlock()
-	existingConfig := configMap[keyspace]
-	if existingConfig != nil {
-		Logf(INFO, "Skipping configuration for already-configured keyspace %s", keyspace)
-		return existingConfig
-	}
-
 	config := &KeyspaceConfig{servers: serverlist, Keyspace: keyspace, MaxPoolSize: poolsize}
 	config.makePool()
+	configMu.Lock()
+	defer configMu.Unlock()
 	configMap[keyspace] = config
 	return config
 }
@@ -168,11 +162,14 @@ func CloseAll() {
 // cassandra keyspace/server info
 func GetCassConn(keyspace string) (conn *CassandraConnection, err error) {
 	configMu.Lock()
-	defer configMu.Unlock()
 	keyspaceConfig, ok := configMap[keyspace]
 	if !ok {
+		configMu.Unlock()
 		return nil, errors.New("Must define keyspaces before you can get connection")
 	}
+	//keyspaceConfig.mu.Lock()
+	//defer keyspaceConfig.mu.Unlock()
+	configMu.Unlock()
 
 	return getConnFromPool(keyspace, keyspaceConfig.pool)
 }
@@ -684,7 +681,7 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 
 	ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
-		if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
+		if strings.Contains(err.Error(), "Remote side has closed") {
 			// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
 			Log(ERROR, "Trying to reopen for add/update ")
 			c.Close()
