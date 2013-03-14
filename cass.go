@@ -99,16 +99,10 @@ var configMu sync.Mutex
 var configMap = make(KeyspaceConfigMap)
 
 func ConfigKeyspace(keyspace string, serverlist []string, poolsize int) *KeyspaceConfig {
-	configMu.Lock()
-	defer configMu.Unlock()
-	existingConfig := configMap[keyspace]
-	if existingConfig != nil {
-		Logf(INFO, "Skipping configuration for already-configured keyspace %s", keyspace)
-		return existingConfig
-	}
-
 	config := &KeyspaceConfig{servers: serverlist, Keyspace: keyspace, MaxPoolSize: poolsize}
 	config.makePool()
+	configMu.Lock()
+	defer configMu.Unlock()
 	configMap[keyspace] = config
 	return config
 }
