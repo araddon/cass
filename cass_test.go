@@ -7,13 +7,13 @@ Cassandra Client testing
 package cass_test
 
 import (
-	"testing"
-	"log"
-	"os"
 	"flag"
 	. "github.com/araddon/cass"
 	"github.com/araddon/cass/cassandra"
+	"log"
+	"os"
 	"strings"
+	"testing"
 )
 
 var conn *CassandraConnection
@@ -24,7 +24,7 @@ var cassServers string
 var verbose bool
 
 func init() {
-	flag.StringVar(&cassServers, "host", "127.0.0.1:9160", "Cassandra host/port combo")
+	flag.StringVar(&cassServers, "host", "192.168.1.111:9160", "Cassandra host/port combo")
 	flag.IntVar(&poolSize, "poolsize", 20, "Default Pool Size = 20, change with this flag")
 	SetLogger(DEBUG, log.New(os.Stdout, "", log.Ltime|log.Lshortfile))
 	flag.Parse()
@@ -62,6 +62,10 @@ func TestAllCassandra(t *testing.T) {
 	testByteType(t)
 
 	testCQL(t)
+
+	testMany(t)
+
+	testManyGoRoutines(t)
 
 }
 
@@ -323,5 +327,48 @@ func testCQL(t *testing.T) {
 		if col.Value != "testingcqlinsert" || col.Name != "username" {
 			t.Errorf("Query failed with wrong n/v expected username:testingcqlinsert but was %s:%s", col.Name, col.Value)
 		}
+	}
+}
+
+// test many
+func testMany(t *testing.T) {
+
+	for i := 0; i < 200; i++ {
+		c, err := GetCassConn("testing")
+		if err != nil || c == nil || c.Client == nil {
+			t.Fatal("error on opening cassandra connection", err)
+		}
+		_, err = conn.Query("SELECT * from user;", "NONE")
+		//Log(DEBUG, "Testing CQL:  SELECT username FROM user WHERE userid=1;;")
+
+		if err != nil {
+			t.Errorf("CQL Query failed by returning error %s", err.Error())
+		}
+		if c != nil {
+			c.Checkin()
+		}
+	}
+}
+
+// test many
+func testManyGoRoutines(t *testing.T) {
+
+	for i := 0; i < 200; i++ {
+		go func() {
+			c, err := GetCassConn("testing")
+			if err != nil || c == nil || c.Client == nil {
+				t.Fatal("error on opening cassandra connection", err)
+			}
+			_, err = conn.Query("SELECT * from user;", "NONE")
+			//Log(DEBUG, "Testing CQL:  SELECT username FROM user WHERE userid=1;;")
+
+			if err != nil {
+				t.Errorf("CQL Query failed by returning error %s", err.Error())
+			}
+			if c != nil {
+				c.Checkin()
+			}
+		}()
+
 	}
 }
