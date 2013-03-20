@@ -42,13 +42,14 @@ func cleanup() {
 
 func TestAllCassandra(t *testing.T) {
 
+	//cleanup()
 	initConn(t)
 	defer cleanup()
 
-	testConn(t)
-
 	// setup testing keyspace
 	testKeyspaceCrud(t)
+
+	testConn(t)
 
 	// first before others setup the CF 'testing' for crud tests
 	testCFCrud(t)
@@ -338,7 +339,7 @@ func testMany(t *testing.T) {
 		if err != nil || c == nil || c.Client == nil {
 			t.Fatal("error on opening cassandra connection", err)
 		}
-		_, err = conn.Query("SELECT * from user;", "NONE")
+		_, err = c.Query("SELECT * from user;", "NONE")
 		//Log(DEBUG, "Testing CQL:  SELECT username FROM user WHERE userid=1;;")
 
 		if err != nil {
@@ -359,7 +360,7 @@ func testManyGoRoutines(t *testing.T) {
 			if err != nil || c == nil || c.Client == nil {
 				t.Fatal("error on opening cassandra connection", err)
 			}
-			_, err = conn.Query("SELECT * from user;", "NONE")
+			_, err = c.Query("SELECT * from user;", "NONE")
 			//Log(DEBUG, "Testing CQL:  SELECT username FROM user WHERE userid=1;;")
 
 			if err != nil {
