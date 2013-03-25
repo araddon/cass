@@ -81,12 +81,17 @@ type CassandraConnection struct {
 	Id       int
 	pool     chan *CassandraConnection
 	Client   *cassandra.CassandraClient
+
+	// Sometimes when we open a cassandra connection, we can't set the keyspace because it
+	// doesn't exist yet (the keyspace is set by each connection). When we execute a
+	// successful "set keyspace" command, then this will be set to true.
+	hasSetKeyspace bool
 }
 
 type KeyspaceConfig struct {
 	servers     []string
 	MaxPoolSize int // Per server
-	mu          sync.Mutex
+	// mu          sync.Mutex
 	//ServerCount int
 	//next int  // next server
 	Keyspace string
@@ -120,9 +125,14 @@ func (c *KeyspaceConfig) makePool() {
 	for i := 0; i < c.MaxPoolSize; i++ {
 		for whichServer := 0; whichServer < len(c.servers); whichServer++ {
 			// add empty values to the pool
-			c.pool <- &CassandraConnection{Keyspace: c.Keyspace, Id: i, Server: c.servers[whichServer]}
+			// c.pool <- &CassandraConnection{Keyspace: c.Keyspace, Id: i, Server: c.servers[whichServer]}
+			addConnToPool(c.pool, c.Keyspace, i, c.servers[whichServer])
 		}
 	}
+}
+
+func addConnToPool(pool chan *CassandraConnection, keyspace string, id int, server string) {
+	pool <- &CassandraConnection{Keyspace: keyspace, Id: id, Server: server}
 }
 
 func ConnPoolSize(keyspace string) int {
@@ -150,9 +160,7 @@ func CloseAll() {
 		if len(pool) > 0 {
 			for i := 0; i < len(pool); i++ {
 				conn = <-pool
-				if conn.Client != nil && conn.Client.Transport != nil {
-					conn.Client.Transport.Close()
-				}
+				conn.Close()
 			}
 		}
 	}
@@ -180,35 +188,49 @@ func getConnFromPool(ks string, pool chan *CassandraConnection) (conn *Cassandra
 	Logf(DEBUG, "in checkout, pulled off pool: remaining = %d, connid=%d Server=%s", len(pool), conn.Id, conn.Server)
 	// BUG(ar):  an error occured on batch mutate <nil> <nil> <nil> Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
 	if conn.Client == nil || conn.Client.Transport.IsOpen() == false {
-
 		conn.pool = pool
-		err = conn.Open(ks)
-		Log(DEBUG, " in create conn, how is client? ", conn.Client, " is err? ", err)
-		return conn, err
-
-	} else if conn != nil && conn.Keyspace != ks {
-		ire, er := conn.Client.SetKeyspace(ks)
-		if ire != nil || er != nil {
-			// most likely this is because it hasn't been created yet, so we will
-			// ignore for now?
-			Log(DEBUG, ire, er)
-			//err = errors.New(fmt.Sprint(ire,er))
+		if err = conn.Open(ks); err != nil {
+			// When a connection has an error, instead of returning it to the pool we'll add a
+			// fresh connection to the pool that will hopefully be error-free
+			conn.Close()
+			addConnToPool(pool, ks, conn.Id, conn.Server)
+			Log(ERROR, "Failed opening connection:", err.Error())
+			return nil, err
 		}
+
+		Log(DEBUG, " in create conn, how is client? ", conn.Client, " is err? ", err)
 	}
-	return
+
+	// This should never happen, but to be safe we'll check and return an error
+	if conn != nil && conn.Keyspace != ks {
+		// When a connection has an error, instead of returning it to the pool we'll add a
+		// fresh connection to the pool that will hopefully be error-free
+		addConnToPool(pool, ks, conn.Id, conn.Server)
+		conn.Close()
+		return nil, fmt.Errorf("keyspace didn't match expected val %s: %s")
+	}
+
+	// The conn may never have run a "set keyspace" command, try again now if needed. If this
+	// fails, we'll proceed anyway so operations like "create keyspace" can still be run.
+	if err := conn.RequireKeyspaceSet(); err != nil {
+		Log(WARN, "Keyspace couldn't be set when checking out connection")
+	}
+
+	return conn, nil
 }
 
 // opens a cassandra connection
 func (conn *CassandraConnection) Open(keyspace string) error {
 
 	Log(DEBUG, "creating new cassandra connection ", conn.pool)
-	tcpConn, er := net.Dial("tcp", conn.Server)
-	if er != nil {
-		return er
-	}
-	ts, err := thrift.NewTSocketConn(tcpConn)
+	tcpConn, err := net.Dial("tcp", conn.Server)
 	if err != nil {
 		return err
+	}
+
+	ts, err := thrift.NewTSocketConn(tcpConn)
+	if err != nil || ts == nil {
+		return fmt.Errorf("Failed opening thrift socket: %s %s", err, ts)
 	}
 
 	if ts == nil {
@@ -217,7 +239,8 @@ func (conn *CassandraConnection) Open(keyspace string) error {
 
 	// the TSocket implements interface TTransport
 	trans := thrift.NewTFramedTransport(ts)
-	trans.Open()
+
+	// A previous version of this code called trans.Open() at this point, but it's already open
 
 	protocolfac := thrift.NewTBinaryProtocolFactoryDefault()
 
@@ -225,28 +248,51 @@ func (conn *CassandraConnection) Open(keyspace string) error {
 
 	Log(DEBUG, " in conn.Open, how is client? ", conn.Client)
 
-	ire, er := conn.Client.SetKeyspace(keyspace)
-	if ire != nil || er != nil {
-		// most likely this is because it hasn't been created yet, so we will
-		// ignore for now, as SetKeyspace() is purely optional
-		Log(ERROR, ire, er)
+	ire, t3e := conn.Client.SetCqlVersion("3.0.0")
+	if ire != nil || t3e != nil {
+		Log(ERROR, ire, t3e)
+		return fmt.Errorf("Failed in SetCqlVersion: %s %s", ire.Why, t3e)
 	}
-	e, t3e := conn.Client.SetCqlVersion("3.0.0")
-	if e != nil || t3e != nil {
-		Log(ERROR, e, t3e)
+	return nil
+
+	ire, err = conn.Client.SetKeyspace(keyspace)
+	if err != nil {
+		err := fmt.Errorf("Failed setting keyspace: %s %s", err, ire.Why)
+		Log(ERROR, ire, err)
+		return err
+	}
+	if ire != nil {
+		// Assumption: setting the keyspace failed because it doesn't yet exist. 
+		conn.hasSetKeyspace = false
+	} else {
+		conn.hasSetKeyspace = true
+	}
+
+	return nil
+}
+
+// If this connection has not yet successfully sent a "set keyspace" command to the server,
+// do it now, returning an error if unsuccessful.
+func (conn *CassandraConnection) RequireKeyspaceSet() error {
+	if !conn.hasSetKeyspace {
+		ire, err := conn.Client.SetKeyspace(conn.Keyspace)
+		if err != nil || ire != nil {
+			return fmt.Errorf("Couldn't set keyspace as required: %s %s", ire, err)
+		}
+		conn.hasSetKeyspace = true
 	}
 	return nil
 }
 
 // closes this connection
 func (conn *CassandraConnection) Close() {
-
+	if conn.Client != nil {
+		conn.Client.Transport.Close()
+	}
 	conn.Client = nil
-
 }
 
 func (conn *CassandraConnection) Checkin() {
-
 	conn.pool <- conn
 }
 
@@ -303,9 +349,10 @@ func (c *CassandraConnection) CreateKeyspace(ks string, repfactor int) error {
 		Log(ERROR, "Create Keyspace failed %s ", err)
 		return err
 	}
-	ire, er := c.Client.SetKeyspace(ks)
-	if ire != nil || er != nil {
-		Log(ERROR, ire, er)
+	ire, err := c.Client.SetKeyspace(ks)
+	if ire != nil || err != nil {
+		Log(ERROR, ire, err.Error())
+		return err
 	}
 	return nil
 }
@@ -450,11 +497,12 @@ func retryForClosedConn(c *CassandraConnection, retryfunc Retryable) error {
 		// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
 		Log(ERROR, "Trying to reopen for add/update ")
 		c.Close()
-		c.Open(c.Keyspace)
+		if err := c.Open(c.Keyspace); err != nil {
+			return fmt.Errorf("Failed to reopen while retrying: %s", err.Error())
+		}
 		return retryfunc()
 	}
 	return err
-
 }
 
 // Insert Single row and column(s)
@@ -681,11 +729,13 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 
 	ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
-		if strings.Contains(err.Error(), "Remote side has closed") {
+		if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
 			// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
 			Log(ERROR, "Trying to reopen for add/update ")
 			c.Close()
-			c.Open(c.Keyspace)
+			if err := c.Open(c.Keyspace); err != nil {
+				return nil, fmt.Errorf("Failed to reopen: %s", err.Error())
+			}
 			ret, ire, ue, te, sde, err = c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
 			if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 				err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
