@@ -7,13 +7,13 @@ Cassandra Client testing
 package cass_test
 
 import (
-	"testing"
-	"log"
-	"os"
 	"flag"
 	. "github.com/araddon/cass"
 	"github.com/araddon/cass/cassandra"
+	"log"
+	"os"
 	"strings"
+	"testing"
 )
 
 var conn *CassandraConnection
@@ -45,10 +45,10 @@ func TestAllCassandra(t *testing.T) {
 	initConn(t)
 	defer cleanup()
 
-	testConn(t)
-
 	// setup testing keyspace
 	testKeyspaceCrud(t)
+
+	testConn(t)
 
 	// first before others setup the CF 'testing' for crud tests
 	testCFCrud(t)
@@ -63,6 +63,7 @@ func TestAllCassandra(t *testing.T) {
 
 	testCQL(t)
 
+	testManyQueries(t)
 }
 
 func initConn(t *testing.T) {
@@ -160,7 +161,10 @@ func testInsertAndRead(t *testing.T) {
 	if err != nil {
 		t.Errorf("error, insert/read failed %v", err)
 	}
-	col, _ := conn.Get("testing", "keyinserttest", "lastnamet")
+	col, err := conn.Get("testing", "keyinserttest", "lastnamet")
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	if col == nil && col.Value != "cassgo" {
 		t.Errorf("insert/get single row, single col failed: testing - keyinserttest")
 	}
@@ -323,5 +327,24 @@ func testCQL(t *testing.T) {
 		if col.Value != "testingcqlinsert" || col.Name != "username" {
 			t.Errorf("Query failed with wrong n/v expected username:testingcqlinsert but was %s:%s", col.Name, col.Value)
 		}
+	}
+}
+
+// This test reproduces a bug where queries sometimes fail with "no keyspace has been specified"
+// when a pool is reused for many queries.
+func testManyQueries(t *testing.T) {
+	for r := 0; r < poolSize*3; r++ {
+		func() {
+			conn, err := GetCassConn("testing")
+			if err != nil {
+				t.Fatal("Couldn't get conn from pool")
+			}
+			defer conn.Checkin()
+
+			_, err = conn.Query("SELECT * FROM user;", "NONE")
+			if err != nil {
+				t.Fatal("Couldn't execute query")
+			}
+		}()
 	}
 }
