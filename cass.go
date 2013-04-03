@@ -7,6 +7,7 @@ import (
 	"github.com/pomack/thrift4go/lib/go/src/thrift"
 	"log"
 	"net"
+	//"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -343,8 +344,7 @@ func (c *CassandraConnection) ColumnsString() (out string) {
 func (c *CassandraConnection) CreateKeyspace(ks string, repfactor int) error {
 
 	_, err := c.Query(fmt.Sprintf(`CREATE KEYSPACE %s 
-		WITH strategy_class = 'SimpleStrategy'
-  			AND strategy_options:replication_factor = %d;`, ks, repfactor), "NONE")
+		WITH replication = { 'class' : 'SimpleStrategy',  'replication_factor' : %d };`, ks, repfactor), "NONE")
 	if err != nil {
 		Log(ERROR, "Create Keyspace failed %s ", err)
 		return err
@@ -437,7 +437,7 @@ func (c *CassandraConnection) Mutate(cf string, mutateArgs map[string]map[string
 
 		//BatchMutate(mutation_map thrift.TMap, consistency_level ConsistencyLevel) 
 		//  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
-		ire, ue, te, err := c.Client.BatchMutate(mutateMap, cassandra.ONE)
+		ire, ue, te, err := c.Client.BatchMutate(mutateMap, cassandra.ConsistencyLevel_ONE)
 		if ire != nil || ue != nil || te != nil || err != nil {
 			errmsg := fmt.Sprint("BatchMutate error occured on ", cf, ire, ue, te, err)
 			Log(ERROR, errmsg)
@@ -521,7 +521,7 @@ func (c *CassandraConnection) Insert(cf string, key string, cols map[string]stri
 
 		//BatchMutate(mutation_map thrift.TMap, consistency_level ConsistencyLevel) 
 		//  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
-		ire, ue, te, err := c.Client.BatchMutate(mutateMap, cassandra.ONE)
+		ire, ue, te, err := c.Client.BatchMutate(mutateMap, cassandra.ConsistencyLevel_ONE)
 		if ire != nil || ue != nil || te != nil || err != nil {
 			Log(ERROR, "an error occured on batch mutate", ire, ue, te, err)
 		}
@@ -535,7 +535,7 @@ func (c *CassandraConnection) Insert(cf string, key string, cols map[string]stri
 
 			//Insert(key string, column_parent *ColumnParent, column *Column, consistency_level   ConsistencyLevel) 
 			//  (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
-			ire, ue, te, err := c.Client.Insert(key, cp, &columns[0], cassandra.ONE)
+			ire, ue, te, err := c.Client.Insert([]byte(key), cp, &columns[0], cassandra.ConsistencyLevel_ONE)
 
 			if ire != nil || ue != nil || te != nil || err != nil {
 				errmsg := fmt.Sprint("Insert error occured on ", cf, " key ", key, ire, ue, te, err)
@@ -566,7 +566,7 @@ func (c *CassandraConnection) Add(cf, key string, incr int64) error {
 
 	//Add(key string, column_parent *ColumnParent, column *CounterColumn, consistency_level ConsistencyLevel) 
 	//    (ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, err error)
-	ire, ue, te, err := c.Client.Add(key, cp, counterCol, cassandra.ONE)
+	ire, ue, te, err := c.Client.Add([]byte(key), cp, counterCol, cassandra.ConsistencyLevel_ONE)
 	if ire != nil || ue != nil || te != nil || err != nil {
 		Log(ERROR, "Counter Add Error, possibly column didn't exist? ", cf, " ", key, ire, ue, te, err)
 		return nil // TODO, make error
@@ -595,7 +595,7 @@ func (c *CassandraConnection) get(rowkey string, cp *cassandra.ColumnPath) (cosc
 
 	//Get(key string, column_path *ColumnPath, consistency_level ConsistencyLevel) 
 	//    (retval446 *ColumnOrSuperColumn, ire *InvalidRequestException, nfe *NotFoundException, ue *UnavailableException, te *TimedOutException, err error)
-	ret, ire, nfe, ue, te, err := c.Client.Get(rowkey, cp, cassandra.ONE)
+	ret, ire, nfe, ue, te, err := c.Client.Get([]byte(rowkey), cp, cassandra.ConsistencyLevel_ONE)
 	if ire != nil || nfe != nil || ue != nil || te != nil || err != nil {
 		errmsg := fmt.Sprint("Get Error, possibly column didn't exist? ", cp.ColumnFamily, rowkey, ire, ue, te, err)
 		Log(ERROR, errmsg)
@@ -651,7 +651,7 @@ func (c *CassandraConnection) getslice(rowkey string, cp *cassandra.ColumnParent
 
 	retry := func() (interface{}, error) {
 
-		ret, ire, ue, te, err := c.Client.GetSlice(rowkey, cp, sp, cassandra.ONE)
+		ret, ire, ue, te, err := c.Client.GetSlice([]byte(rowkey), cp, sp, cassandra.ConsistencyLevel_ONE)
 		if ire != nil || ue != nil || te != nil || err != nil {
 			err = CassandraError(fmt.Sprint("Error returned for Get ", ire, ue, te, err, c.Client))
 			Log(ERROR, err.Error())
@@ -720,7 +720,7 @@ func (c *CassandraConnection) GetRange(cf, rowkey, start, finish string, reverse
  * 
  * Parameters:
  *  - Query
- *  - Compression
+ *  - Compression  []
  */
 func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandra.Column, err error) {
 
@@ -731,7 +731,8 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 		Logf(ERROR, "Nil Client")
 		return nil, errors.New("No Client for cass conn")
 	}
-	ret, ire, ue, te, sde, err := c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
+	//[]byte(cql), cassandra.FromCompressionString(compression)
+	ret, ire, ue, te, sde, err := c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), cassandra.ConsistencyLevel_ONE)
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 		if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
 			// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
@@ -740,14 +741,14 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 			if err := c.Open(c.Keyspace); err != nil {
 				return nil, fmt.Errorf("Failed to reopen: %s", err.Error())
 			}
-			ret, ire, ue, te, sde, err = c.Client.ExecuteCqlQuery(cql, cassandra.FromCompressionString(compression))
+			ret, ire, ue, te, sde, err = c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), cassandra.ConsistencyLevel_ONE)
 			if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 				err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
 				Log(ERROR, err.Error())
 				return rows, err
 			}
 		} else {
-			err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
+			err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err, cql))
 			Log(ERROR, err.Error())
 			return rows, err
 		}
@@ -804,29 +805,29 @@ func NewColumnParent(name string) (c *cassandra.ColumnParent) {
 func NewColumnPath(cfname, colname string) (c *cassandra.ColumnPath) {
 	c = cassandra.NewColumnPath()
 	c.ColumnFamily = cfname
-	c.Column = colname
+	c.Column = []byte(colname)
 	return
 }
 
 func NewColumn(name string, value string, timestamp int64) (c *cassandra.Column) {
 	c = cassandra.NewColumn()
-	c.Name = name
-	c.Value = value
+	c.Name = []byte(name)
+	c.Value = []byte(value)
 	c.Timestamp = timestamp
 	return
 }
 
 func NewCounterColumn(name string, value int64) (c *cassandra.CounterColumn) {
 	c = cassandra.NewCounterColumn()
-	c.Name = name
+	c.Name = []byte(name)
 	c.Value = value
 	return
 }
 
 func NewSliceRange(start, finish string, reversed bool, limitCt int) (sr *cassandra.SliceRange) {
 	sr = cassandra.NewSliceRange()
-	sr.Start = start
-	sr.Finish = finish
+	sr.Start = []byte(start)
+	sr.Finish = []byte(finish)
 	sr.Reversed = reversed
 	sr.Count = int32(limitCt)
 	return
