@@ -344,7 +344,7 @@ func (c *CassandraConnection) ColumnsString() (out string) {
 func (c *CassandraConnection) CreateKeyspace(ks string, repfactor int) error {
 
 	_, err := c.Query(fmt.Sprintf(`CREATE KEYSPACE %s 
-		WITH replication = { 'class' : 'SimpleStrategy',  'replication_factor' : %d };`, ks, repfactor), "NONE")
+		WITH replication = { 'class' : 'SimpleStrategy',  'replication_factor' : %d };`, ks, repfactor))
 	if err != nil {
 		Log(ERROR, "Create Keyspace failed %s ", err)
 		return err
@@ -721,18 +721,15 @@ func (c *CassandraConnection) GetRange(cf, rowkey, start, finish string, reverse
  * Parameters:
  *  - Query
  *  - Compression  []
+ *  - ConsistencyLevel 
  */
-func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandra.Column, err error) {
-
-	//ExecuteCqlQuery(query string, compression Compression) 
-	//  (retval474 *CqlResult, ire *InvalidRequestException, ue *UnavailableException, te *TimedOutException, sde *SchemaDisagreementException, err error)
+func (c *CassandraConnection) QueryArgs(cql, compression string, consistency cassandra.ConsistencyLevel) (rows [][]*cassandra.Column, err error) {
 
 	if c.Client == nil {
 		Logf(ERROR, "Nil Client")
 		return nil, errors.New("No Client for cass conn")
 	}
-	//[]byte(cql), cassandra.FromCompressionString(compression)
-	ret, ire, ue, te, sde, err := c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), cassandra.ConsistencyLevel_ONE)
+	ret, ire, ue, te, sde, err := c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), consistency)
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 		if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
 			// Cannot read. Remote side has closed. Tried to read 4 bytes, but only got 0 bytes.
@@ -741,7 +738,7 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 			if err := c.Open(c.Keyspace); err != nil {
 				return nil, fmt.Errorf("Failed to reopen: %s", err.Error())
 			}
-			ret, ire, ue, te, sde, err = c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), cassandra.ConsistencyLevel_ONE)
+			ret, ire, ue, te, sde, err = c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), consistency)
 			if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 				err = CassandraError(fmt.Sprint("Error on Query ", ire, ue, te, sde, err))
 				Log(ERROR, err.Error())
@@ -776,6 +773,17 @@ func (c *CassandraConnection) Query(cql, compression string) (rows [][]*cassandr
 		return rows, nil
 	}
 	return rows, err
+}
+
+/**
+ * Executes a CQL (Cassandra Query Language) statement and returns a * CqlResult containing the results.
+ * 
+ * Parameters:
+ *  - Query
+ *  - Compression  []
+ */
+func (c *CassandraConnection) Query(cql string) (rows [][]*cassandra.Column, err error) {
+	return c.QueryArgs(cql, "NONE", cassandra.ConsistencyLevel_QUORUM)
 }
 
 /**
