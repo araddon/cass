@@ -36,7 +36,8 @@ func init() {
 }
 
 func cleanup() {
-	_ = conn.DeleteKeyspace("testing")
+	err := conn.DeleteKeyspace("testing")
+	Debug(err)
 	conn.Checkin()
 	CloseAll()
 }
@@ -54,7 +55,7 @@ func TestAllCassandra(t *testing.T) {
 	// first before others setup the CF 'testing' for crud tests
 	testCFCrud(t)
 
-	testInsertAndRead(t)
+	//testInsertAndRead(t)
 
 	//testCounters(t)
 

@@ -705,7 +705,7 @@ func (c *CassandraConnection) GetRange(cf, rowkey, start, finish string, reverse
  * 
  * Parameters:
  *  - Query
- *  - Compression  []
+ *  - Compression  ["Compression_GZIP", "GZIP", "Compression_NONE", "NONE"]
  *  - ConsistencyLevel 
  */
 func (c *CassandraConnection) QueryArgs(cql, compression string, consistency cassandra.ConsistencyLevel) (rows [][]*cassandra.Column, err error) {
@@ -764,8 +764,7 @@ func (c *CassandraConnection) QueryArgs(cql, compression string, consistency cas
  * Executes a CQL (Cassandra Query Language) statement and returns a * CqlResult containing the results.
  * 
  * Parameters:
- *  - Query
- *  - Compression  []
+ *  - CQL Query
  */
 func (c *CassandraConnection) Query(cql string) (rows [][]*cassandra.Column, err error) {
 	return c.QueryArgs(cql, "NONE", cassandra.ConsistencyLevel_QUORUM)
