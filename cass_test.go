@@ -295,17 +295,17 @@ func testCQL(t *testing.T) {
 			companyid int,
 			username varchar,
 			PRIMARY KEY (userid, companyid)
-		);`, "NONE")
+		);`)
 	if er != nil {
 		t.Error("CQL table create failed by returning error ", er)
 	}
 
-	_, err1 := conn.Query("INSERT INTO user (userid, companyid, username) VALUES(1,2,'testingcqlinsert');", "NONE")
+	_, err1 := conn.Query("INSERT INTO user (userid, companyid, username) VALUES(1,2,'testingcqlinsert');")
 	if err1 != nil {
 		t.Errorf("CQL Query Insert failed by returning error %s", err1.Error())
 	}
 
-	rows, err := conn.Query("SELECT username FROM user WHERE userid=1;", "NONE")
+	rows, err := conn.Query("SELECT username FROM user WHERE userid=1;")
 	Log(DEBUG, "Testing CQL:  SELECT username FROM user WHERE userid=1;;")
 
 	if err != nil {
@@ -342,7 +342,7 @@ func testManyQueries(t *testing.T) {
 			}
 			defer conn.Checkin()
 
-			_, err = conn.Query("SELECT * FROM user;", "NONE")
+			_, err = conn.Query("SELECT * FROM user;")
 			if err != nil {
 				t.Fatal("Couldn't execute query")
 			}
