@@ -54,7 +54,7 @@ func TestAllCassandra(t *testing.T) {
 	// first before others setup the CF 'testing' for crud tests
 	testCFCrud(t)
 
-	//testInsertAndRead(t)
+	testInsertAndRead(t)
 
 	//testCounters(t)
 
