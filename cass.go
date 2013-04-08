@@ -328,7 +328,7 @@ func (c *CassandraConnection) ColumnsString() (out string) {
 // Create a keyspace, with ReplicationFactor *repfactor*
 func (c *CassandraConnection) CreateKeyspace(ks string, repfactor int) error {
 
-	_, err := c.Query(fmt.Sprintf(`CREATE KEYSPACE %s 
+	_, err := c.QueryNokeyspace(fmt.Sprintf(`CREATE KEYSPACE %s 
 		WITH replication = { 'class' : 'SimpleStrategy',  'replication_factor' : %d };`, ks, repfactor))
 	if err != nil {
 		Log(ERROR, "Create Keyspace failed %s ", err)
@@ -707,13 +707,21 @@ func (c *CassandraConnection) GetRange(cf, rowkey, start, finish string, reverse
  *  - Query
  *  - Compression  ["Compression_GZIP", "GZIP", "Compression_NONE", "NONE"]
  *  - ConsistencyLevel 
+ *
+ * conn.QueryArgs(`Create table user (...)`, "NONE", false, cassandra.ConsistencyLevel_QUORUM)
  */
-func (c *CassandraConnection) QueryArgs(cql, compression string, consistency cassandra.ConsistencyLevel) (rows [][]*cassandra.Column, err error) {
+func (c *CassandraConnection) QueryArgs(cql, compression string, requireKeyspace bool, consistency cassandra.ConsistencyLevel) (rows [][]*cassandra.Column, err error) {
 
 	if c.Client == nil {
 		Logf(ERROR, "Nil Client")
 		return nil, errors.New("No Client for cass conn")
 	}
+	if requireKeyspace {
+		if err := c.RequireKeyspaceSet(); err != nil {
+			return nil, err
+		}
+	}
+	Debug(cql)
 	ret, ire, ue, te, sde, err := c.Client.ExecuteCql3Query([]byte(cql), cassandra.FromCompressionString(compression), consistency)
 	if ire != nil || ue != nil || te != nil || sde != nil || err != nil {
 		if err != nil && strings.Contains(err.Error(), "Remote side has closed") {
@@ -767,7 +775,18 @@ func (c *CassandraConnection) QueryArgs(cql, compression string, consistency cas
  *  - CQL Query
  */
 func (c *CassandraConnection) Query(cql string) (rows [][]*cassandra.Column, err error) {
-	return c.QueryArgs(cql, "NONE", cassandra.ConsistencyLevel_QUORUM)
+	return c.QueryArgs(cql, "NONE", true, cassandra.ConsistencyLevel_QUORUM)
+}
+
+/**
+ * Executes a CQL (Cassandra Query Language) statement and returns a * CqlResult containing the results.
+ *  Uses no keyspace (generaly create tables, truncate, etc)
+ * 
+ * Parameters:
+ *  - CQL Query
+ */
+func (c *CassandraConnection) QueryNokeyspace(cql string) (rows [][]*cassandra.Column, err error) {
+	return c.QueryArgs(cql, "NONE", false, cassandra.ConsistencyLevel_QUORUM)
 }
 
 /**

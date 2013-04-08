@@ -291,7 +291,7 @@ func testCQL(t *testing.T) {
 
 	var col cassandra.Column
 
-	_, er := conn.Query(`CREATE TABLE user (
+	_, er := conn.QueryNokeyspace(`CREATE TABLE user (
 			userid int,
 			companyid int,
 			username varchar,
