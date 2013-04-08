@@ -1,6 +1,6 @@
-A simple Cassandra client in go.  Currently runs against cassandra 1.0.  
+A simple Cassandra client in go.  Currently runs against cassandra 1.2.x
 
-You probably should consider https://github.com/carloscm/gossie instead, it is more feature rich.  I started this before it was available.
+Alternate go clients to consider https://github.com/carloscm/gossie or https://github.com/tux21b/gocql instead.  Also a go cassandra connection pooling service https://github.com/samuraisam/cassbounce
 
 
 Installation
@@ -35,7 +35,7 @@ CQL::
       uid int,
       gob blob,
       PRIMARY KEY (customerid, uid)
-    );`, "NONE")
+    );`)
 
   if err2 != nil {
     log.Println("CQL Query create failed by returning error ", err)
@@ -55,6 +55,10 @@ CQL::
   }
 
   
+
+Thrift Interface
+=============================
+
 Create a Connection, Keyspace, Column Family, Insert, Read::
     
     import "github.com/araddon/cass", "fmt"
@@ -128,17 +132,5 @@ Get Many for column family, and row key specified return columns::
     // get specific cols
     cols2, err3 := conn.GetCols("col_fam_name","keyvalue1",[]string{"col2","col4"})
     
-
-
-To Generate the Cassandra Go Thrift Client
-===========================================
-
-As of Mar-19-12:  Because of the Go changes it has custom `Thrift Go Lib <http://github.com/araddon/thrift4go>`_.   If you hack it needs a modified version of core `Thrift <http://github.com/araddon/thrift` in order to generate the /thrift/1.0/gen-go libs.  See commit log to see changes of the thrift or go4thrift changes.
-
-
-To generate from *cassandra.thrift*, you first need to have a working install of thrift.  Until changes make it into Thrift mainline you will need to use this modified version of thrift to support the newer Go Changes http://github.com/araddon/thrift .  This contains modifications to the go thrift compiler to allow compiling the cassandra.thrift::
-    
-    # cd to parent of cass folder
-    thrift --gen go -out . cassandra.thrift   
 
 

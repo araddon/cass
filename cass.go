@@ -255,21 +255,6 @@ func (conn *CassandraConnection) Open(keyspace string) error {
 		return fmt.Errorf("Failed in SetCqlVersion: %s %s", ire.Why, t3e)
 	}
 	return nil
-
-	ire, err = conn.Client.SetKeyspace(keyspace)
-	if err != nil {
-		err := fmt.Errorf("Failed setting keyspace: %s %s", err, ire.Why)
-		Log(ERROR, ire, err)
-		return err
-	}
-	if ire != nil {
-		// Assumption: setting the keyspace failed because it doesn't yet exist. 
-		conn.hasSetKeyspace = false
-	} else {
-		conn.hasSetKeyspace = true
-	}
-
-	return nil
 }
 
 // If this connection has not yet successfully sent a "set keyspace" command to the server,
