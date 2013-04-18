@@ -335,7 +335,7 @@ func testCQL(t *testing.T) {
 // This test reproduces a bug where queries sometimes fail with "no keyspace has been specified"
 // when a pool is reused for many queries.
 func testManyQueries(t *testing.T) {
-	for r := 0; r < poolSize*3; r++ {
+	for r := 0; r < (poolSize+1)*CLOSE_EVERY_N; r++ {
 		func() {
 			conn, err := GetCassConn("testing")
 			if err != nil {
