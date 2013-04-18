@@ -27,6 +27,11 @@ const (
 	INFO  = 3
 	DEBUG = 4
 	None  = -1
+
+	// After a pooled connection has been used this many times, its thrift connection
+	// will be closed. This a workaround for TFramedTransport using too much memory; it
+	// grows its buffer as necessary for each query but never shrinks it.
+	CLOSE_EVERY_N = 1000
 )
 
 var (
@@ -82,6 +87,9 @@ type CassandraConnection struct {
 	Id       int
 	pool     chan *CassandraConnection
 	Client   *cassandra.CassandraClient
+
+	// How many times this connection has been returned to the connection pool
+	numCheckins uint64
 
 	// Sometimes when we open a cassandra connection, we can't set the keyspace because it
 	// doesn't exist yet (the keyspace is set by each connection). When we execute a
@@ -281,9 +289,16 @@ func (conn *CassandraConnection) Close() {
 		conn.Client.Transport.Close()
 	}
 	conn.Client = nil
+	conn.hasSetKeyspace = false
 }
 
 func (conn *CassandraConnection) Checkin() {
+	conn.numCheckins++
+	if (conn.numCheckins % CLOSE_EVERY_N) == 0 {
+		// This is a hack to periodically release buffers in TFramedTransport that tend
+		// to grow over time.
+		conn.Close()
+	}
 	conn.pool <- conn
 }
 
