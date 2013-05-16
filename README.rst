@@ -26,7 +26,7 @@ CQL::
     
   err, err1 := conn.Client.SetCqlVersion("3.0.0")
   if err != nil || err1 != nil {
-    log.Println(err, err2)
+    log.Println(err, err1)
   }
 
   res, err2 := conn.Query(`
