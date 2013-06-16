@@ -1,6 +1,10 @@
 A simple Cassandra client in go.  Currently runs against cassandra 1.2.x
 
-Alternate go clients to consider https://github.com/carloscm/gossie or https://github.com/tux21b/gocql instead.  Also a go cassandra connection pooling service https://github.com/samuraisam/cassbounce
+Alternate go clients to consider
+    
+    * https://github.com/carloscm/gossie
+    * https://github.com/tux21b/gocql 
+    * Or, a go cassandra connection pooling service https://github.com/samuraisam/cassbounce
 
 
 Installation
@@ -17,7 +21,7 @@ First get a working version of `Thrift Go Lib <http://github.com/pomack/thrift4g
 Documentation
 ==================
 
-See full doc here: http://gopkgdoc.appspot.com/pkg/github.com/araddon/cass
+See full doc here: http://godoc.org/github.com/araddon/cass
 
 
 Usage
@@ -43,12 +47,12 @@ CQL::
 
   cql := fmt.Sprintf(`INSERT INTO user (customerid, uid, gob) VALUES (1234,128,'%#x');`, "gobdata")
   
-  if _, err3 := conn.Query(cql, "NONE"); err3 != nil {
+  if _, err3 := conn.Query(cql); err3 != nil {
     log.Println("CQL Query Insert failed by returning error ", err3)
   } 
 
 
-  rows, err4 := conn.Query("SELECT * FROM user WHERE customerid=1234;", "NONE")
+  rows, err4 := conn.Query("SELECT * FROM user WHERE customerid=1234;")
   
   if len(rows) != 1 {
     log.Printf("Query failed was %v \n", rows)
