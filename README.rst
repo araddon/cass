@@ -3,7 +3,7 @@ A simple Cassandra client in go.  Currently runs against cassandra 1.2.x
 Alternate go clients to consider
     
 * https://github.com/carloscm/gossie
-* https://github.com/tux21b/gocql 
+* https://github.com/gocql/gocql
 * Or, a go cassandra connection pooling service https://github.com/samuraisam/cassbounce
 
 
